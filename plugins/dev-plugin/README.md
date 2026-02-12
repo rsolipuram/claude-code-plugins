@@ -53,26 +53,77 @@ An intelligent development automation plugin that ensures code quality, maintain
 
 ### 1. Install the Plugin
 
+**Option A: Automated Setup (Recommended)**
+
 ```bash
-# Option 1: Project-specific
+# Run the setup script - installs dependencies and plugin
+cd /path/to/dev-plugin
+./setup.sh
+```
+
+The script will:
+- ✓ Check Python and pip
+- ✓ Install dependencies (pyyaml + optional langfuse)
+- ✓ Offer to install plugin globally or per-project
+
+**Option B: Manual Installation**
+
+```bash
+# Install dependencies first
+pip install pyyaml  # Required
+pip install langfuse  # Optional, for observability
+
+# Then install plugin:
+# Project-specific:
 mkdir -p .claude-plugin
 cp -r /path/to/dev-plugin .claude-plugin/
 
-# Option 2: Global (all projects)
+# OR Global (all projects):
 mkdir -p ~/.claude/plugins
 cp -r /path/to/dev-plugin ~/.claude/plugins/
 
-# Option 3: Test first
+# OR Test first:
 claude --plugin-dir /path/to/dev-plugin
 ```
 
-### 2. Optional: Enable Observability
+### 2. Install Dependencies (Automatic or Manual)
+
+**Option A: Automatic (Recommended)**
+
+Dependencies are auto-installed on first use:
 
 ```bash
-# Install Langfuse SDK
-pip install langfuse pyyaml
+# Just start Claude Code - dependencies install automatically
+claude
+```
 
-# Create configuration
+**Option B: Manual Installation**
+
+```bash
+# Install required dependencies
+pip install -r /path/to/dev-plugin/requirements.txt
+
+# Or install individually
+pip install pyyaml  # Required for configuration
+pip install langfuse  # Optional, only if using observability with Langfuse
+```
+
+**Disable Auto-Install**
+
+If you prefer manual control, disable auto-installation:
+
+```bash
+cat > .claude/dev-plugin.local.md << 'EOF'
+---
+auto_install_dependencies: false
+---
+EOF
+```
+
+### 3. Optional: Configure Features
+
+```bash
+# Enable observability and other features
 cat > .claude/dev-plugin.local.md << 'EOF'
 ---
 observability:
@@ -83,7 +134,7 @@ observability:
 EOF
 ```
 
-### 3. Use Claude Code
+### 4. Use Claude Code
 
 ```bash
 # Start Claude Code
@@ -97,7 +148,7 @@ claude
 # - Sessions tracked in .claude/observability/sessions/
 ```
 
-### 4. View Your Data
+### 5. View Your Data
 
 ```bash
 # See local session files
@@ -174,10 +225,16 @@ When Claude Code session completes:
 ### Core
 - Python 3.7+ (for the plugin itself)
 - Claude Code
-- PyYAML (recommended): `pip install pyyaml` - For configuration file parsing
+- pip (Python package installer)
 
-### Optional (for Observability)
-- Langfuse SDK: `pip install langfuse` - For session tracking with Langfuse
+### Dependencies (Auto-Installed)
+The plugin automatically installs required dependencies on first use:
+- **PyYAML** (required): Configuration file parsing
+- **Langfuse SDK** (optional): Only needed if using observability with Langfuse
+
+You can also install manually: `pip install -r requirements.txt`
+
+### Optional (for Observability with Langfuse)
 - Docker: For running local Langfuse instance
 
 ### Language-Specific
@@ -633,12 +690,38 @@ The plugin automatically detects project types by looking for indicator files:
 
 ## Troubleshooting
 
+### Dependency Installation Issues
+
+**Problem**: Dependencies not auto-installing
+
+**Solutions**:
+1. Check Python and pip are available:
+   ```bash
+   python3 --version
+   python3 -m pip --version
+   ```
+
+2. Install dependencies manually:
+   ```bash
+   pip install pyyaml
+   # Or use the requirements file
+   pip install -r /path/to/dev-plugin/requirements.txt
+   ```
+
+3. Check auto-install is enabled in `.claude/dev-plugin.local.md`:
+   ```yaml
+   ---
+   auto_install_dependencies: true  # Should be true or omitted (default is true)
+   ---
+   ```
+
 ### Plugin Not Running
 
 **Check**:
 1. Verify plugin is installed and enabled in Claude Code
 2. Ensure Python 3.7+ is available: `python3 --version`
-3. Look for indicator files in your project (tsconfig.json, go.mod, etc.)
+3. Check dependencies are installed: `python3 -c "import yaml; print('✓ PyYAML installed')"`
+4. Look for indicator files in your project (tsconfig.json, go.mod, etc.)
 
 ### No Project Type Detected
 
