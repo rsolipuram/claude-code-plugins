@@ -87,11 +87,6 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/notify-completion.py",
             "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker.py",
-            "timeout": 10
           }
         ]
       }

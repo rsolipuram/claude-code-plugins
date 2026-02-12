@@ -173,12 +173,12 @@ display notification "{message}" with title "{title}"
                 results.append(f"⚠ Mac notification failed: {msg}")
 
         # Send TTS if enabled
-        if notif_config.get('tts', True):
-            success, msg = self.speak_message(message)
-            if success:
-                results.append("✓ TTS announcement completed")
-            else:
-                results.append(f"⚠ TTS failed: {msg}")
+        # if notif_config.get('tts', True):
+        #     success, msg = self.speak_message(message)
+        #     if success:
+        #         results.append("✓ TTS announcement completed")
+        #     else:
+        #         results.append(f"⚠ TTS failed: {msg}")
 
         if results:
             return True, ' | '.join(results)
