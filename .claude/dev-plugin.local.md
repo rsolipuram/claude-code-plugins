@@ -13,6 +13,8 @@ observability:
     userId: "ranjit"        # Optional: track by user
     version: "1.0.0"        # Optional: track plugin version
     tags: ["dev", "local"]  # Optional: categorize traces
+    auto_start: true       # ✅ Auto-start Langfuse on session start
+    compose_path: "/Users/raghavendersolipuram/langfuse-docker/docker-compose.yml"
 
 # Auto-formatting
 autoformat:
