@@ -102,13 +102,22 @@ class CompletionNotifier:
 
         return "Claude Code session completed. " + "; ".join(parts)
 
+    def sanitize_message(self, message: str) -> str:
+        """Sanitize message for AppleScript to prevent display issues."""
+        if len(message) > 100:
+            message = message[:100] + "..."
+        # Remove backslashes, quotes and other problematic characters
+        return message.replace("\\", "").replace('"', "").replace("'", "")
+
     def send_mac_notification(self, message: str, title: str = "Claude Code") -> Tuple[bool, str]:
         """Send notification via macOS notification center."""
         try:
-            # Use osascript to send notification
-            script = f'''
-display notification "{message}" with title "{title}"
-'''
+            # Aggressively sanitize message and title
+            safe_message = self.sanitize_message(message)
+            safe_title = self.sanitize_message(title)
+            
+            # Use osascript with sanitized input, subtitle and sound
+            script = f'display notification "{safe_message}" with title "{safe_title}" subtitle "Session Complete" sound name "default"'
             result = subprocess.run(
                 ['osascript', '-e', script],
                 capture_output=True,
@@ -173,12 +182,12 @@ display notification "{message}" with title "{title}"
                 results.append(f"⚠ Mac notification failed: {msg}")
 
         # Send TTS if enabled
-        # if notif_config.get('tts', True):
-        #     success, msg = self.speak_message(message)
-        #     if success:
-        #         results.append("✓ TTS announcement completed")
-        #     else:
-        #         results.append(f"⚠ TTS failed: {msg}")
+        if notif_config.get('tts', True):
+            success, msg = self.speak_message(message)
+            if success:
+                results.append("✓ TTS announcement completed")
+            else:
+                results.append(f"⚠ TTS failed: {msg}")
 
         if results:
             return True, ' | '.join(results)

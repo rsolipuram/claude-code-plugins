@@ -233,6 +233,9 @@ class ObservabilityTracker:
             trace = langfuse.trace(
                 name="claude-code-session",
                 id=self.session_data['session_id'],
+                user_id=langfuse_config.get('userId'),
+                version=langfuse_config.get('version'),
+                tags=langfuse_config.get('tags'),
                 metadata={
                     'project': self.session_data['project_name'],
                     'project_dir': self.session_data['project_dir'],
