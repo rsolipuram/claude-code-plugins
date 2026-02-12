@@ -74,11 +74,6 @@
             "timeout": 90
           },
           {
-            "type": "prompt",
-            "prompt": "Use the Task tool to launch a subagent for CLAUDE.md updates. Subagent type: 'general-purpose'. Description: 'Update CLAUDE.md with learnings'. Task: 'Analyze this session - what was discovered? Update CLAUDE.md ONLY with valuable, project-specific learnings (commands used, gotchas found, non-obvious patterns). Follow skills/claude-md-manager/references/update-guidelines.md. Skip if nothing significant. Every line must earn its place.'",
-            "timeout": 60
-          },
-          {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/git-checkpoint.py",
             "timeout": 30
@@ -86,6 +81,11 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/notify-completion.py",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker.py",
             "timeout": 10
           }
         ]
