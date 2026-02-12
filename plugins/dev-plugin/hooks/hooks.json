@@ -11,11 +11,6 @@
             "timeout": 60
           },
           {
-            "type": "prompt",
-            "prompt": "Use the Task tool to launch a subagent for CLAUDE.md management. Subagent type: 'general-purpose'. Description: 'CLAUDE.md initialization'. Task: 'Check if CLAUDE.md exists. If missing: analyze codebase (read package.json, README, scan directories) and create intelligent, project-specific CLAUDE.md following skills/claude-md-manager/SKILL.md guidelines. If exists: quick quality validation. Use skills/claude-md-manager/references/ for quality criteria. Be concise, actionable, project-specific.'",
-            "timeout": 60
-          },
-          {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker.py",
             "timeout": 10
