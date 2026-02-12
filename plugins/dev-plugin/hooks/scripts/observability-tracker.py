@@ -104,6 +104,9 @@ class ObservabilityTracker:
         # Save session
         self._save_session()
 
+        # Output silent success
+        print(json.dumps({"success": True, "suppressOutput": True}))
+
     def track_user_prompt(self, hook_input: Dict) -> None:
         """Track user prompt submission (UserPromptSubmit hook)."""
         if not self.config.get('observability', {}).get('enabled', False):
@@ -125,6 +128,9 @@ class ObservabilityTracker:
 
         # Save session
         self._save_session()
+
+        # Output silent success
+        print(json.dumps({"success": True, "suppressOutput": True}))
 
     def finalize_session(self, hook_input: Dict) -> None:
         """Finalize session tracking (Stop hook)."""
@@ -336,6 +342,14 @@ def main():
         # Load configuration
         config = load_config(project_dir)
 
+        # Check if observability is enabled
+        observability_enabled = config.get('observability', {}).get('enabled', False)
+
+        # If disabled, output success JSON and exit early
+        if not observability_enabled:
+            print(json.dumps({"success": True, "suppressOutput": True}))
+            sys.exit(0)
+
         # Initialize tracker
         tracker = ObservabilityTracker(project_dir, config)
 
@@ -350,6 +364,9 @@ def main():
             tracker.track_user_prompt(hook_input)
         elif hook_event == 'Stop':
             tracker.finalize_session(hook_input)
+        else:
+            # Unknown event, output success
+            print(json.dumps({"success": True, "suppressOutput": True}))
 
         # Always exit 0 - observability should never block
         sys.exit(0)
