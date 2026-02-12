@@ -35,6 +35,14 @@ observability:
     host: http://localhost:3000
     public_key: ""  # Your Langfuse public key
     secret_key: ""  # Your Langfuse secret key
+
+# CLAUDE.md management (NEW)
+claude_md_management:
+  auto_init: true              # Auto-create CLAUDE.md if missing
+  auto_update: true            # Update CLAUDE.md at session end
+  update_threshold: 3          # Min tool calls before updating
+  max_file_size: 10240         # 10KB size limit
+  backup_before_update: true   # Create backup before each update
 ---
 
 # Development Plugin Settings
@@ -45,6 +53,7 @@ This file configures all intelligent development automation features:
 - **Git Checkpointing**: Automatic commits with detailed messages
 - **Safety Validations**: Blocks dangerous bash commands
 - **Completion Notifications**: Mac notifications and TTS on completion
+- **CLAUDE.md Management**: Auto-creates and maintains project context file
 
 ## Configuration Options
 
@@ -137,6 +146,45 @@ This file configures all intelligent development automation features:
 #### observability.langfuse.secret_key
 - **Type**: string
 - **Description**: Langfuse secret API key
+
+### CLAUDE.md Management (NEW)
+
+#### claude_md_management.auto_init
+- **Type**: boolean
+- **Default**: `true`
+- **Description**: Automatically create CLAUDE.md if it doesn't exist
+- **Features**:
+  - Detects project type (Node.js, Python, Go, Rust, etc.)
+  - Generates appropriate template with relevant sections
+  - Includes project structure and technology stack
+
+#### claude_md_management.auto_update
+- **Type**: boolean
+- **Default**: `true`
+- **Description**: Update CLAUDE.md at session end with learnings
+- **What Gets Documented**:
+  - Common commands and workflows
+  - Architectural patterns and decisions
+  - Setup instructions discovered
+  - Gotchas and common issues
+
+#### claude_md_management.update_threshold
+- **Type**: integer
+- **Default**: `3`
+- **Description**: Minimum number of tool calls before updating CLAUDE.md
+- **Purpose**: Avoids updates for trivial sessions
+
+#### claude_md_management.max_file_size
+- **Type**: integer
+- **Default**: `10240` (10KB)
+- **Description**: Maximum size for CLAUDE.md in bytes
+- **Purpose**: Keeps file concise and focused
+
+#### claude_md_management.backup_before_update
+- **Type**: boolean
+- **Default**: `true`
+- **Description**: Create backup before updating CLAUDE.md
+- **Location**: `.claude/claude-md-backups/CLAUDE.md.{timestamp}.bak`
 
 ## Usage
 
@@ -276,6 +324,29 @@ observability:
 ---
 ```
 
+### Disable CLAUDE.md Auto-Management
+
+```yaml
+---
+claude_md_management:
+  auto_init: false
+  auto_update: false
+---
+```
+
+### CLAUDE.md with Custom Settings
+
+```yaml
+---
+claude_md_management:
+  auto_init: true
+  auto_update: true
+  update_threshold: 5        # Update only after 5+ tool calls
+  max_file_size: 15360       # Allow up to 15KB
+  backup_before_update: true
+---
+```
+
 ### Complete Feature Control
 
 ```yaml
@@ -306,6 +377,12 @@ observability:
     host: http://localhost:3000
     public_key: pk-lf-local
     secret_key: sk-lf-local
+
+# CLAUDE.md management
+claude_md_management:
+  auto_init: true
+  auto_update: true
+  update_threshold: 3
 ---
 ```
 

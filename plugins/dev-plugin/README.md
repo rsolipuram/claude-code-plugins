@@ -41,6 +41,16 @@ An intelligent development automation plugin that ensures code quality, maintain
 - **Privacy-First**: Tracks metadata only, no code/PII stored
 - **Visual Analytics**: View session data in Langfuse dashboard
 
+### 📝 CLAUDE.md Auto-Management (NEW)
+- **Intelligent Initialization**: Uses Claude's AI to analyze codebase and create CLAUDE.md
+- **Not Template-Based**: Claude understands context and generates project-specific content
+- **Session Learning**: Intelligently updates with valuable insights (not generic logging)
+- **Architecture Understanding**: Claude discovers and documents patterns, not templates
+- **Quality-Driven**: Follows official Anthropic quality criteria (6-dimension rubric)
+- **Smart Filtering**: Only adds genuinely useful information, not everything
+- **Conciseness First**: Dense, valuable content; no filler or obvious info
+- **Official Guidelines**: Based on anthropic's claude-md-management plugin approach
+
 ### ⚙️ Configuration & Control
 - **Fully Configurable**: Customize all features via YAML settings
 - **Global + Project Overrides**: Set defaults globally, override per project
@@ -140,12 +150,15 @@ EOF
 # Start Claude Code
 claude
 
-# Your sessions are now tracked!
-# - Quality checks run automatically
-# - Files auto-format on edit
-# - Git commits at session end
-# - Notifications on completion
-# - Sessions tracked in .claude/observability/sessions/
+# Everything happens automatically!
+# ✓ CLAUDE.md created if missing
+# ✓ Dependencies installed automatically
+# ✓ Quality checks run on session end
+# ✓ Files auto-format on edit
+# ✓ CLAUDE.md updates with learnings
+# ✓ Git commits at session end
+# ✓ Notifications on completion
+# ✓ Sessions tracked in .claude/observability/sessions/
 ```
 
 ### 5. View Your Data
@@ -174,6 +187,26 @@ cat .claude/observability/sessions/*.json | jq '.summary'
 More languages coming soon: Java, C++, Ruby, PHP, and more!
 
 ## How It Works
+
+### At Session Start (SessionStart)
+
+When you start a Claude Code session:
+
+1. **Dependency Check**:
+   - Verifies required dependencies (pyyaml)
+   - Auto-installs if missing and enabled
+   - Checks optional dependencies if features are enabled
+
+2. **CLAUDE.md Initialization**:
+   - Checks if CLAUDE.md exists
+   - If missing: Creates from template
+   - Detects project type (Node.js, Python, Go, Rust, etc.)
+   - Generates appropriate sections (structure, tech stack, workflows)
+   - If exists: Validates structure and suggests improvements
+
+3. **Observability Setup**:
+   - Initializes session tracking
+   - Starts recording tool usage and metrics
 
 ### During Editing (PostToolUse)
 
@@ -205,20 +238,27 @@ When Claude Code session completes:
    - If errors found: blocks and auto-fixes
    - If clean: proceeds to next step
 
-2. **Git Checkpointing**:
+2. **CLAUDE.md Update**:
+   - Analyzes session activity
+   - Extracts learnings (commands, patterns, decisions)
+   - Updates relevant sections in CLAUDE.md
+   - Creates backup before updating
+   - Only updates if threshold is met (default: 3+ tool calls)
+
+3. **Git Checkpointing**:
    - Checks for git repository
    - Detects merge conflicts (blocks if found)
    - Auto-stages modified files
    - Creates detailed commit with diff summary
    - Skips silently if not a git repo
 
-3. **Completion Notifications**:
+4. **Completion Notifications**:
    - Analyzes session changes
    - Sends Mac notification with summary
    - Announces completion via text-to-speech
    - Reports files modified/created/deleted
 
-4. **Session End**: All checks passed, session ends successfully
+5. **Session End**: All checks passed, session ends successfully
 
 ## Prerequisites
 
@@ -404,6 +444,38 @@ observability:
 - Configure keys in settings
 - View sessions in Langfuse dashboard at `http://localhost:3000`
 
+### CLAUDE.md Management Configuration
+
+```yaml
+---
+claude_md_management:
+  auto_init: true              # Auto-create CLAUDE.md if missing (uses Claude's AI)
+  auto_update: true            # Update CLAUDE.md at session end (intelligent analysis)
+  update_threshold: 3          # Min tool calls before updating
+  max_file_size: 10240         # 10KB size limit
+  backup_before_update: true   # Create backup before each update
+---
+```
+
+**How It Works** (Intelligent Approach):
+- **SessionStart**: Claude analyzes codebase, understands context, creates CLAUDE.md intelligently
+- **Stop**: Claude reviews session, extracts valuable learnings, updates CLAUDE.md (not logging)
+- **Quality Focus**: Follows 6-dimension rubric (commands, architecture, patterns, conciseness, currency, actionability)
+- **Smart Filtering**: Only adds genuinely useful info (no obvious code facts, no generic advice)
+
+**What Claude Documents** (Based on Understanding):
+- Commands discovered and their purposes
+- Architecture insights from code analysis
+- Non-obvious patterns and gotchas encountered
+- Configuration quirks found during work
+- Testing approaches that work
+- ❌ Not: Obvious code info, generic best practices, one-off fixes, verbose explanations
+
+**Official References**:
+- See `skills/claude-md-auto-init/` for initialization skill
+- See `skills/claude-md-auto-update/` for update skill
+- Based on: https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-md-management
+
 ### Complete Configuration Example
 
 ```yaml
@@ -425,6 +497,12 @@ notifications:
   enabled: true
   mac_notification: true
   tts: true
+
+# CLAUDE.md management (new)
+claude_md_management:
+  auto_init: true
+  auto_update: true
+  update_threshold: 3
 ---
 ```
 

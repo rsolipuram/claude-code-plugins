@@ -1,5 +1,5 @@
 {
-  "description": "Intelligent development automation: quality checks, auto-formatting, git checkpointing, safety validations, and observability tracking",
+  "description": "Intelligent development automation: quality checks, auto-formatting, git checkpointing, safety validations, observability tracking, and CLAUDE.md management",
   "hooks": {
     "SessionStart": [
       {
@@ -8,6 +8,11 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/check-dependencies.py",
+            "timeout": 60
+          },
+          {
+            "type": "prompt",
+            "prompt": "Use the Task tool to launch a subagent for CLAUDE.md management. Subagent type: 'general-purpose'. Description: 'CLAUDE.md initialization'. Task: 'Check if CLAUDE.md exists. If missing: analyze codebase (read package.json, README, scan directories) and create intelligent, project-specific CLAUDE.md following skills/claude-md-manager/SKILL.md guidelines. If exists: quick quality validation. Use skills/claude-md-manager/references/ for quality criteria. Be concise, actionable, project-specific.'",
             "timeout": 60
           },
           {
@@ -72,6 +77,11 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/quality-check.py",
             "timeout": 90
+          },
+          {
+            "type": "prompt",
+            "prompt": "Use the Task tool to launch a subagent for CLAUDE.md updates. Subagent type: 'general-purpose'. Description: 'Update CLAUDE.md with learnings'. Task: 'Analyze this session - what was discovered? Update CLAUDE.md ONLY with valuable, project-specific learnings (commands used, gotchas found, non-obvious patterns). Follow skills/claude-md-manager/references/update-guidelines.md. Skip if nothing significant. Every line must earn its place.'",
+            "timeout": 60
           },
           {
             "type": "command",
