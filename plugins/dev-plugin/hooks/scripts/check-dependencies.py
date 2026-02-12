@@ -10,6 +10,13 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+# Try to import yaml at module level
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
+
 class DependencyChecker:
     """Check and optionally install plugin dependencies."""
 
@@ -38,10 +45,9 @@ class DependencyChecker:
             if config_path.exists():
                 try:
                     content = config_path.read_text()
-                    if '---' in content:
+                    if '---' in content and YAML_AVAILABLE:
                         parts = content.split('---', 2)
                         if len(parts) >= 2:
-                            import yaml
                             return yaml.safe_load(parts[1]) or {}
                 except Exception:
                     pass
@@ -146,8 +152,9 @@ def main():
     try:
         # Read hook input (optional)
         try:
-            hook_input = json.loads(sys.stdin.read())
-        except:
+            stdin_content = sys.stdin.read().strip()
+            hook_input = json.loads(stdin_content) if stdin_content else {}
+        except (json.JSONDecodeError, ValueError):
             hook_input = {}
 
         checker = DependencyChecker()

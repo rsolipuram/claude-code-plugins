@@ -266,7 +266,11 @@ def main():
     """Main hook execution."""
     try:
         # Read hook input from stdin
-        hook_input = json.load(sys.stdin)
+        try:
+            stdin_content = sys.stdin.read().strip()
+            hook_input = json.loads(stdin_content) if stdin_content else {}
+        except (json.JSONDecodeError, ValueError):
+            hook_input = {}
 
         # Get project directory
         project_dir = Path(os.environ.get('CLAUDE_PROJECT_DIR', os.getcwd()))

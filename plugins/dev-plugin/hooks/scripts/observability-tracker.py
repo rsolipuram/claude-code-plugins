@@ -324,7 +324,11 @@ def main():
     """Main hook execution."""
     try:
         # Read hook input from stdin
-        hook_input = json.load(sys.stdin)
+        try:
+            stdin_content = sys.stdin.read().strip()
+            hook_input = json.loads(stdin_content) if stdin_content else {}
+        except (json.JSONDecodeError, ValueError):
+            hook_input = {}
 
         # Get project directory
         project_dir = Path(os.environ.get('CLAUDE_PROJECT_DIR', os.getcwd()))
@@ -351,12 +355,12 @@ def main():
         sys.exit(0)
 
     except Exception as e:
-        # Log error but don't block
+        # Log error but don't block - output valid JSON to stdout
         error_output = {
             "systemMessage": f"⚠ Observability tracker error: {str(e)}",
             "suppressOutput": False
         }
-        print(json.dumps(error_output), file=sys.stderr)
+        print(json.dumps(error_output))
         sys.exit(0)
 
 

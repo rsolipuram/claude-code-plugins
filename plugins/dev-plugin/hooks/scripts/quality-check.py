@@ -291,8 +291,9 @@ def main():
     """Main entry point."""
     # Read input JSON (available but not used for Stop event)
     try:
-        input_data = json.loads(sys.stdin.read())
-    except Exception:
+        stdin_content = sys.stdin.read().strip()
+        input_data = json.loads(stdin_content) if stdin_content else {}
+    except (json.JSONDecodeError, ValueError, Exception):
         input_data = {}
 
     # Get project directory
