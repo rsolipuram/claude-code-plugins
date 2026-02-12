@@ -95,7 +95,7 @@
           },
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/claude-md-async.sh",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/claude-md-async.py",
             "async": true,
             "timeout": 5
           }
