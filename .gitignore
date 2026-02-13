@@ -10,6 +10,7 @@ build/
 
 # Observability data (sessions tracked locally)
 .claude/observability/sessions/
+.claude/observability/debug/
 .claude/observability/test-sessions/
 .claude/observability/current-session.json
 
