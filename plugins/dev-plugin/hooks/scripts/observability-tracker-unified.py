@@ -183,6 +183,11 @@ class ObservabilityTracker:
 
     def handle_tool_use(self, hook_input: Dict) -> Dict:
         """Track tool usage (PostToolUse hook)."""
+        self._debug_log('PostToolUse', {
+            'hook_input_keys': list(hook_input.keys()),
+            'hook_input_sample': {k: str(v)[:200] if v else None for k, v in hook_input.items()}
+        })
+
         self._load_session()
 
         if not self.session_data:
@@ -191,7 +196,15 @@ class ObservabilityTracker:
         # Extract tool info
         tool_name = hook_input.get('tool_name', 'Unknown')
         tool_input_data = hook_input.get('tool_input', {})
-        tool_result = hook_input.get('tool_result', {})
+
+        # Extract tool output - field name is 'tool_response' in PostToolUse!
+        tool_result = (
+            hook_input.get('tool_response') or  # ← Correct field name!
+            hook_input.get('tool_result') or
+            hook_input.get('result') or
+            hook_input.get('output') or
+            {}
+        )
 
         # Track tool with input/output (limit size to avoid bloat)
         def truncate_data(data, max_length=1000):
@@ -289,14 +302,37 @@ class ObservabilityTracker:
         if not self.session_data:
             return {"success": True, "suppressOutput": True}
 
-        # NEW: Capture assistant response if available
-        response_content = (
-            hook_input.get('assistant_message') or
-            hook_input.get('response') or
-            hook_input.get('output') or
-            hook_input.get('completion') or
-            ''
-        )
+        # NEW: Extract assistant response from transcript file
+        transcript_path = hook_input.get('transcript_path')
+        response_content = ''
+
+        if transcript_path and Path(transcript_path).exists():
+            try:
+                # Read the transcript JSONL file
+                transcript_lines = Path(transcript_path).read_text().strip().split('\n')
+
+                # Find the last assistant message
+                for line in reversed(transcript_lines):
+                    try:
+                        entry = json.loads(line)
+                        if entry.get('role') == 'assistant' and entry.get('content'):
+                            # Extract text content from assistant message
+                            content = entry['content']
+                            if isinstance(content, list):
+                                # Content is array of text/tool_use blocks
+                                text_parts = [
+                                    block.get('text', '')
+                                    for block in content
+                                    if isinstance(block, dict) and block.get('type') == 'text'
+                                ]
+                                response_content = '\n'.join(text_parts)
+                            elif isinstance(content, str):
+                                response_content = content
+                            break
+                    except (json.JSONDecodeError, KeyError):
+                        continue
+            except Exception:
+                pass  # Graceful fallback if transcript reading fails
 
         # Update the last prompt with the response
         if self.session_data.get('prompts') and response_content:
