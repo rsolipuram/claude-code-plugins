@@ -269,14 +269,32 @@ class ObservabilityTracker:
     # ========================================
 
     def handle_stop(self, hook_input: Dict) -> Dict:
-        """Finalize session tracking and close Langfuse trace."""
+        """Finalize session tracking and create GENERATION with prompt+response."""
         self._debug_log('Stop', {
             'hook_input_keys': list(hook_input.keys())
         })
 
-        # Finalize trace in Langfuse
+        # Extract prompt and response from transcript for GENERATION
         if self.langfuse_trace:
             try:
+                transcript_path = hook_input.get('transcript_path')
+                if transcript_path and Path(transcript_path).exists():
+                    # Read transcript to get last prompt and response
+                    user_prompt, assistant_response = self._extract_last_conversation(transcript_path)
+
+                    if user_prompt and assistant_response:
+                        # Create GENERATION with complete prompt+response pair
+                        self.langfuse_trace.generation(
+                            name="assistant_response",
+                            start_time=datetime.now(),
+                            input=user_prompt,
+                            output=assistant_response,
+                            metadata={
+                                'event': 'Stop',
+                                'type': 'conversation_turn'
+                            }
+                        )
+
                 # Update trace with final metadata
                 self.langfuse_trace.update(
                     output={'status': 'completed'}
@@ -289,6 +307,61 @@ class ObservabilityTracker:
             "systemMessage": "📊 Session complete",
             "suppressOutput": False
         }
+
+    def _extract_last_conversation(self, transcript_path: str) -> tuple:
+        """Extract last user prompt and assistant response from transcript."""
+        try:
+            transcript_lines = Path(transcript_path).read_text().strip().split('\n')
+
+            user_prompt = None
+            assistant_response = None
+
+            # Find the last user and assistant messages
+            for line in reversed(transcript_lines):
+                try:
+                    entry = json.loads(line)
+                    role = entry.get('role')
+                    content = entry.get('content')
+
+                    if not content:
+                        continue
+
+                    # Extract assistant response
+                    if role == 'assistant' and not assistant_response:
+                        if isinstance(content, list):
+                            # Content is array of text/tool_use blocks
+                            text_parts = [
+                                block.get('text', '')
+                                for block in content
+                                if isinstance(block, dict) and block.get('type') == 'text'
+                            ]
+                            assistant_response = '\n'.join(text_parts)
+                        elif isinstance(content, str):
+                            assistant_response = content
+
+                    # Extract user prompt
+                    elif role == 'user' and not user_prompt:
+                        if isinstance(content, list):
+                            text_parts = [
+                                block.get('text', '')
+                                for block in content
+                                if isinstance(block, dict) and block.get('type') == 'text'
+                            ]
+                            user_prompt = '\n'.join(text_parts)
+                        elif isinstance(content, str):
+                            user_prompt = content
+
+                    # Stop when we have both
+                    if user_prompt and assistant_response:
+                        break
+
+                except (json.JSONDecodeError, KeyError):
+                    continue
+
+            return (user_prompt, assistant_response)
+        except Exception as e:
+            self._debug_log('TranscriptExtractionError', {'error': str(e)})
+            return (None, None)
 
 
     # ========================================
