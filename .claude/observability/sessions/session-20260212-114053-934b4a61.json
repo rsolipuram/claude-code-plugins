@@ -1,0 +1,153 @@
+{
+  "session_id": "934b4a61-b15a-4b3b-bbc9-d2c84a8a4494",
+  "project_dir": "/Users/raghavendersolipuram/Documents/Projects/claude-code-plugins",
+  "project_name": "claude-code-plugins",
+  "start_time": "2026-02-12T10:48:42.762487",
+  "tools_used": [
+    {
+      "tool": "WebFetch",
+      "timestamp": "2026-02-12T10:53:55.765544",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T10:54:42.600499",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T10:54:47.199635",
+      "success": true
+    },
+    {
+      "tool": "Read",
+      "timestamp": "2026-02-12T10:54:50.244896",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T10:55:40.445777",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T10:55:42.000942",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T10:55:43.702513",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T10:55:45.328903",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T10:55:50.693898",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T10:55:52.068502",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T10:55:53.959870",
+      "success": true
+    },
+    {
+      "tool": "Write",
+      "timestamp": "2026-02-12T10:57:10.999472",
+      "success": true
+    },
+    {
+      "tool": "Edit",
+      "timestamp": "2026-02-12T10:57:31.544923",
+      "success": true
+    },
+    {
+      "tool": "Edit",
+      "timestamp": "2026-02-12T10:57:36.805617",
+      "success": true
+    },
+    {
+      "tool": "Write",
+      "timestamp": "2026-02-12T10:57:46.294199",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T10:59:15.420264",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T11:00:07.461803",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T11:14:19.172413",
+      "success": true
+    },
+    {
+      "tool": "Edit",
+      "timestamp": "2026-02-12T11:14:32.828960",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T11:31:03.529854",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T11:31:26.416713",
+      "success": true
+    },
+    {
+      "tool": "Edit",
+      "timestamp": "2026-02-12T11:34:07.503435",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T11:34:22.813914",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T11:40:39.188540",
+      "success": true
+    }
+  ],
+  "files_modified": [
+    "/Users/raghavendersolipuram/langfuse-docker/docker-compose.yml",
+    "/Users/raghavendersolipuram/langfuse-docker/.env",
+    "/Users/raghavendersolipuram/Documents/Projects/claude-code-plugins/.claude/dev-plugin.local.md"
+  ],
+  "files_created": [
+    "/Users/raghavendersolipuram/langfuse-docker/.env",
+    "/Users/raghavendersolipuram/langfuse-docker/init-minio.sh"
+  ],
+  "files_deleted": [],
+  "errors": [],
+  "total_tool_calls": 24,
+  "hook_event": "SessionStart",
+  "prompts_submitted": 1,
+  "last_prompt_time": "2026-02-12T10:48:42.762678",
+  "end_time": "2026-02-12T11:40:53.329574",
+  "duration_seconds": 3130.567087,
+  "summary": {
+    "total_tools": 24,
+    "unique_tools": 5,
+    "files_modified": 3,
+    "files_created": 2,
+    "errors": 0,
+    "duration_minutes": 52.18
+  }
+}

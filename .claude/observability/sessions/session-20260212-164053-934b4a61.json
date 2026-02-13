@@ -1,0 +1,45 @@
+{
+  "session_id": "934b4a61-b15a-4b3b-bbc9-d2c84a8a4494",
+  "project_dir": "/Users/raghavendersolipuram/Documents/Projects/claude-code-plugins",
+  "project_name": "claude-code-plugins",
+  "start_time": "2026-02-12T16:40:20.571939",
+  "tools_used": [
+    {
+      "tool": "Write",
+      "timestamp": "2026-02-12T16:40:34.795127",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T16:40:40.912933",
+      "success": true
+    },
+    {
+      "tool": "Edit",
+      "timestamp": "2026-02-12T16:40:42.496094",
+      "success": true
+    }
+  ],
+  "files_modified": [
+    "/Users/raghavendersolipuram/Documents/Projects/claude-code-plugins/plugins/dev-plugin/hooks/hooks.json"
+  ],
+  "files_created": [
+    "/Users/raghavendersolipuram/Documents/Projects/claude-code-plugins/plugins/dev-plugin/hooks/scripts/claude-md-async.sh"
+  ],
+  "files_deleted": [],
+  "errors": [],
+  "total_tool_calls": 3,
+  "hook_event": "SessionStart",
+  "prompts_submitted": 1,
+  "last_prompt_time": "2026-02-12T16:40:20.572143",
+  "end_time": "2026-02-12T16:40:53.162497",
+  "duration_seconds": 32.590558,
+  "summary": {
+    "total_tools": 3,
+    "unique_tools": 3,
+    "files_modified": 1,
+    "files_created": 1,
+    "errors": 0,
+    "duration_minutes": 0.54
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "session_id": "934b4a61-b15a-4b3b-bbc9-d2c84a8a4494",
+  "project_dir": "/Users/raghavendersolipuram/Documents/Projects/claude-code-plugins",
+  "project_name": "claude-code-plugins",
+  "start_time": "2026-02-12T10:25:06.574389",
+  "tools_used": [
+    {
+      "tool": "Read",
+      "timestamp": "2026-02-12T10:25:15.526649",
+      "success": true
+    },
+    {
+      "tool": "Read",
+      "timestamp": "2026-02-12T10:25:16.251158",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T10:38:01.332335",
+      "success": true
+    },
+    {
+      "tool": "Read",
+      "timestamp": "2026-02-12T10:38:16.393484",
+      "success": true
+    },
+    {
+      "tool": "Write",
+      "timestamp": "2026-02-12T10:39:20.860824",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T10:39:30.578984",
+      "success": true
+    },
+    {
+      "tool": "Edit",
+      "timestamp": "2026-02-12T10:39:30.684049",
+      "success": true
+    },
+    {
+      "tool": "Bash",
+      "timestamp": "2026-02-12T10:41:40.877659",
+      "success": true
+    },
+    {
+      "tool": "Read",
+      "timestamp": "2026-02-12T10:41:47.678614",
+      "success": true
+    },
+    {
+      "tool": "TaskOutput",
+      "timestamp": "2026-02-12T10:42:00.796606",
+      "success": true
+    }
+  ],
+  "files_modified": [
+    "/Users/raghavendersolipuram/Documents/Projects/claude-code-plugins/plugins/dev-plugin/hooks/hooks.json"
+  ],
+  "files_created": [
+    "/Users/raghavendersolipuram/Documents/Projects/claude-code-plugins/plugins/dev-plugin/hooks/scripts/langfuse-manager.py"
+  ],
+  "files_deleted": [],
+  "errors": [],
+  "total_tool_calls": 10,
+  "hook_event": "SessionStart",
+  "prompts_submitted": 1,
+  "last_prompt_time": "2026-02-12T10:25:06.574638",
+  "end_time": "2026-02-12T10:42:09.346106",
+  "duration_seconds": 1022.771717,
+  "summary": {
+    "total_tools": 10,
+    "unique_tools": 5,
+    "files_modified": 1,
+    "files_created": 1,
+    "errors": 0,
+    "duration_minutes": 17.05
+  }
+}

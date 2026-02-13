@@ -1,0 +1,25 @@
+{
+  "session_id": "934b4a61-b15a-4b3b-bbc9-d2c84a8a4494",
+  "project_dir": "/Users/raghavendersolipuram/Documents/Projects/claude-code-plugins",
+  "project_name": "claude-code-plugins",
+  "start_time": "2026-02-12T16:38:21.451035",
+  "tools_used": [],
+  "files_modified": [],
+  "files_created": [],
+  "files_deleted": [],
+  "errors": [],
+  "total_tool_calls": 0,
+  "hook_event": "SessionStart",
+  "prompts_submitted": 1,
+  "last_prompt_time": "2026-02-12T16:38:21.451233",
+  "end_time": "2026-02-12T16:38:35.324067",
+  "duration_seconds": 13.873032,
+  "summary": {
+    "total_tools": 0,
+    "unique_tools": 0,
+    "files_modified": 0,
+    "files_created": 0,
+    "errors": 0,
+    "duration_minutes": 0.23
+  }
+}

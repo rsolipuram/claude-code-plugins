@@ -1,0 +1,10 @@
+{
+	"servers": {
+		"my-mcp-server-b2851d67": {
+			"type": "stdio",
+			"command": "test",
+			"args": []
+		}
+	},
+	"inputs": []
+}
