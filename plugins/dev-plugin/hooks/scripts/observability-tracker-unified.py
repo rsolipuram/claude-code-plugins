@@ -32,6 +32,7 @@ class ObservabilityTracker:
         self.langfuse_config = self.obs_config.get('langfuse', {})
         self.session_data = {}
         self.langfuse_client = None
+        self.debug_mode = self.obs_config.get('debug', False)
 
     # ========================================
     # SESSION START: Quick Check + Async Setup
@@ -93,6 +94,7 @@ class ObservabilityTracker:
             'errors': [],
             'total_tool_calls': 0,
             'prompts_submitted': 0,
+            'prompts': [],  # NEW: Track individual prompt/response pairs
             'hook_event': 'SessionStart'
         }
 
@@ -232,12 +234,38 @@ class ObservabilityTracker:
 
     def handle_prompt(self, hook_input: Dict) -> Dict:
         """Track user prompt submission (UserPromptSubmit hook)."""
+        self._debug_log('UserPromptSubmit', {
+            'hook_input_keys': list(hook_input.keys()),
+            'hook_input_sample': {k: str(v)[:200] if v else None for k, v in hook_input.items()}
+        })
+
         self._load_session()
 
         if not self.session_data:
             # Initialize if needed
             self._initialize_session(hook_input)
 
+        # NEW: Capture actual prompt content
+        prompt_content = (
+            hook_input.get('user_message') or
+            hook_input.get('prompt') or
+            hook_input.get('content') or
+            hook_input.get('message') or
+            hook_input.get('text') or
+            ''
+        )
+
+        prompt_record = {
+            'index': self.session_data['prompts_submitted'],
+            'timestamp': datetime.now().isoformat(),
+            'prompt': prompt_content,
+            'response': None,  # Will be filled later
+            'metadata': {
+                'raw_hook_input_keys': list(hook_input.keys())  # Debug: see what fields are available
+            }
+        }
+
+        self.session_data['prompts'].append(prompt_record)
         self.session_data['prompts_submitted'] += 1
         self.session_data['last_prompt_time'] = datetime.now().isoformat()
 
@@ -251,10 +279,29 @@ class ObservabilityTracker:
 
     def handle_stop(self, hook_input: Dict) -> Dict:
         """Finalize session tracking (Stop hook)."""
+        self._debug_log('Stop', {
+            'hook_input_keys': list(hook_input.keys()),
+            'hook_input_sample': {k: str(v)[:200] if v else None for k, v in hook_input.items()}
+        })
+
         self._load_session()
 
         if not self.session_data:
             return {"success": True, "suppressOutput": True}
+
+        # NEW: Capture assistant response if available
+        response_content = (
+            hook_input.get('assistant_message') or
+            hook_input.get('response') or
+            hook_input.get('output') or
+            hook_input.get('completion') or
+            ''
+        )
+
+        # Update the last prompt with the response
+        if self.session_data.get('prompts') and response_content:
+            self.session_data['prompts'][-1]['response'] = response_content
+            self.session_data['prompts'][-1]['response_timestamp'] = datetime.now().isoformat()
 
         # Add end time and duration
         self.session_data['end_time'] = datetime.now().isoformat()
@@ -306,6 +353,9 @@ class ObservabilityTracker:
         if session_file.exists():
             try:
                 self.session_data = json.loads(session_file.read_text())
+                # Ensure prompts array exists (backward compatibility)
+                if 'prompts' not in self.session_data:
+                    self.session_data['prompts'] = []
             except Exception:
                 self.session_data = {}
 
@@ -360,6 +410,19 @@ class ObservabilityTracker:
                 }
             )
 
+            # NEW: Add prompt/response pairs as generations
+            for prompt_record in self.session_data.get('prompts', []):
+                if prompt_record.get('prompt'):
+                    generation = trace.generation(
+                        name=f"prompt_{prompt_record['index']}",
+                        start_time=datetime.fromisoformat(prompt_record['timestamp']),
+                        end_time=datetime.fromisoformat(prompt_record.get('response_timestamp', prompt_record['timestamp'])),
+                        input=prompt_record['prompt'],
+                        output=prompt_record.get('response', ''),
+                        model="claude-sonnet-4-5",
+                        metadata=prompt_record.get('metadata', {})
+                    )
+
             # Add tool usage as spans
             for tool_record in self.session_data['tools_used']:
                 trace.span(
@@ -380,6 +443,28 @@ class ObservabilityTracker:
     # ========================================
     # UTILITIES
     # ========================================
+
+    def _debug_log(self, event: str, data: Dict) -> None:
+        """Log debug information to help diagnose issues."""
+        if not self.debug_mode:
+            return
+
+        try:
+            debug_dir = self.project_dir / '.claude' / 'observability' / 'debug'
+            debug_dir.mkdir(parents=True, exist_ok=True)
+
+            debug_file = debug_dir / f"debug-{datetime.now().strftime('%Y%m%d')}.jsonl"
+
+            debug_entry = {
+                'timestamp': datetime.now().isoformat(),
+                'event': event,
+                'data': data
+            }
+
+            with debug_file.open('a') as f:
+                f.write(json.dumps(debug_entry) + '\n')
+        except Exception:
+            pass  # Don't fail if debug logging fails
 
     def _generate_session_id(self) -> str:
         """Generate unique session ID."""
