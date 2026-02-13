@@ -113,12 +113,14 @@ class ObservabilityTracker:
     def _connect_langfuse(self) -> None:
         """Connect to Langfuse (sets up client for later use)."""
         try:
-            from langfuse import Langfuse
-            self.langfuse_client = Langfuse(
-                host=self.langfuse_config.get('host', 'http://localhost:3000'),
-                public_key=self.langfuse_config.get('public_key', ''),
-                secret_key=self.langfuse_config.get('secret_key', '')
-            )
+            from langfuse import get_client
+            # Set environment variables for get_client()
+            import os
+            os.environ['LANGFUSE_HOST'] = self.langfuse_config.get('host', 'http://localhost:3000')
+            os.environ['LANGFUSE_PUBLIC_KEY'] = self.langfuse_config.get('public_key', '')
+            os.environ['LANGFUSE_SECRET_KEY'] = self.langfuse_config.get('secret_key', '')
+
+            self.langfuse_client = get_client()
         except ImportError:
             self.langfuse_client = None
 
@@ -324,36 +326,46 @@ class ObservabilityTracker:
             return  # SDK not available
 
         try:
-            # Create trace
-            trace = self.langfuse_client.trace(
-                name="claude-code-session",
-                id=self.session_data['session_id'],
-                user_id=self.langfuse_config.get('userId'),
-                version=self.langfuse_config.get('version'),
-                tags=self.langfuse_config.get('tags'),
-                metadata={
-                    'project': self.session_data['project_name'],
-                    'project_dir': self.session_data['project_dir'],
-                    'duration_seconds': self.session_data.get('duration_seconds', 0),
-                    'summary': self.session_data.get('summary', {})
-                },
-                input={
-                    'prompts_submitted': self.session_data.get('prompts_submitted', 0)
-                },
-                output={
-                    'files_modified': self.session_data['files_modified'],
-                    'files_created': self.session_data['files_created'],
-                    'total_tools': self.session_data['total_tool_calls']
-                }
-            )
+            from langfuse import propagate_attributes
 
-            # Add tool usage spans
-            for tool_record in self.session_data['tools_used']:
-                trace.span(
-                    name=f"tool_{tool_record['tool']}",
-                    start_time=datetime.fromisoformat(tool_record['timestamp']),
-                    metadata={'success': tool_record['success']}
-                )
+            # Create trace with metadata using propagate_attributes and context manager
+            with self.langfuse_client.start_as_current_observation(
+                as_type="span",
+                name="claude-code-session"
+            ) as root_span:
+                # Set trace-level attributes
+                with propagate_attributes(
+                    user_id=self.langfuse_config.get('userId'),
+                    session_id=self.session_data['session_id'],
+                    version=self.langfuse_config.get('version'),
+                    tags=self.langfuse_config.get('tags'),
+                    metadata={
+                        'project': self.session_data['project_name'],
+                        'project_dir': self.session_data['project_dir'],
+                        'duration_seconds': str(self.session_data.get('duration_seconds', 0)),
+                        'summary': json.dumps(self.session_data.get('summary', {}))
+                    }
+                ):
+                    # Update trace with input/output
+                    root_span.update_trace(
+                        input={'prompts_submitted': self.session_data.get('prompts_submitted', 0)},
+                        output={
+                            'files_modified': self.session_data['files_modified'],
+                            'files_created': self.session_data['files_created'],
+                            'total_tools': self.session_data['total_tool_calls']
+                        }
+                    )
+
+                    # Add tool usage as child spans
+                    for tool_record in self.session_data['tools_used']:
+                        with self.langfuse_client.start_as_current_observation(
+                            as_type="span",
+                            name=f"tool_{tool_record['tool']}"
+                        ) as tool_span:
+                            tool_span.update(
+                                start_time=datetime.fromisoformat(tool_record['timestamp']),
+                                metadata={'success': tool_record['success']}
+                            )
 
             # Flush
             self.langfuse_client.flush()
