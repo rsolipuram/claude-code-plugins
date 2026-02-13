@@ -191,11 +191,23 @@ class ObservabilityTracker:
         tool_input_data = hook_input.get('tool_input', {})
         tool_result = hook_input.get('tool_result', {})
 
-        # Track tool
+        # Track tool with input/output (limit size to avoid bloat)
+        def truncate_data(data, max_length=1000):
+            """Truncate large data for storage."""
+            if isinstance(data, str) and len(data) > max_length:
+                return data[:max_length] + '... (truncated)'
+            elif isinstance(data, dict):
+                return {k: truncate_data(v, max_length) for k, v in list(data.items())[:10]}
+            elif isinstance(data, list) and len(data) > 10:
+                return [truncate_data(item, max_length) for item in data[:10]] + ['... (truncated)']
+            return data
+
         tool_record = {
             'tool': tool_name,
             'timestamp': datetime.now().isoformat(),
-            'success': not isinstance(tool_result, dict) or not tool_result.get('error')
+            'success': not isinstance(tool_result, dict) or not tool_result.get('error'),
+            'input': truncate_data(tool_input_data),
+            'output': truncate_data(tool_result) if tool_result else None
         }
 
         # Track file operations
@@ -353,6 +365,8 @@ class ObservabilityTracker:
                 trace.span(
                     name=f"tool_{tool_record['tool']}",
                     start_time=datetime.fromisoformat(tool_record['timestamp']),
+                    input=tool_record.get('input'),
+                    output=tool_record.get('output'),
                     metadata={'success': tool_record['success']}
                 )
 
