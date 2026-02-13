@@ -339,8 +339,15 @@ class ObservabilityTracker:
             for line in reversed(transcript_lines):
                 try:
                     entry = json.loads(line)
-                    role = entry.get('role')
-                    content = entry.get('content')
+                    
+                    # Handle both new and legacy transcript formats
+                    # New format nests role/content under 'message' key
+                    message = entry.get('message', entry)
+                    if not isinstance(message, dict):
+                        continue
+                        
+                    role = message.get('role')
+                    content = message.get('content')
 
                     if not content:
                         continue
@@ -354,7 +361,8 @@ class ObservabilityTracker:
                                 for block in content
                                 if isinstance(block, dict) and block.get('type') == 'text'
                             ]
-                            assistant_response = '\n'.join(text_parts)
+                            if text_parts:
+                                assistant_response = '\n'.join(text_parts)
                         elif isinstance(content, str):
                             assistant_response = content
 
@@ -366,7 +374,8 @@ class ObservabilityTracker:
                                 for block in content
                                 if isinstance(block, dict) and block.get('type') == 'text'
                             ]
-                            user_prompt = '\n'.join(text_parts)
+                            if text_parts:
+                                user_prompt = '\n'.join(text_parts)
                         elif isinstance(content, str):
                             user_prompt = content
 
