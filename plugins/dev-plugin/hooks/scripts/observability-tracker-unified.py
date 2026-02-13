@@ -249,17 +249,18 @@ class ObservabilityTracker:
         # Send to Langfuse immediately
         if self.langfuse_trace:
             try:
-                self.langfuse_trace.generation(
-                    name="user_prompt",
+                self.langfuse_trace.event(
+                    name="user_prompt_submit",
                     start_time=datetime.now(),
                     input=prompt_content,
                     metadata={
-                        'event': 'UserPromptSubmit'
+                        'event': 'UserPromptSubmit',
+                        'prompt_length': len(prompt_content)
                     }
                 )
                 self.langfuse_client.flush()
             except Exception as e:
-                self._debug_log('GenerationCreationError', {'error': str(e)})
+                self._debug_log('EventCreationError', {'error': str(e)})
 
         return {"success": True, "suppressOutput": True}
 
