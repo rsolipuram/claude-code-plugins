@@ -30,7 +30,6 @@ class ObservabilityTracker:
         self.obs_config = config.get('observability', {})
         self.langfuse_config = self.obs_config.get('langfuse', {})
         self.langfuse_client = None
-        self.langfuse_trace = None
         self.session_id = None
         self.debug_mode = self.obs_config.get('debug', False)
 
@@ -51,11 +50,12 @@ class ObservabilityTracker:
                 self._connect_langfuse()
                 if self.langfuse_client:
                     # Create trace immediately
-                    self._create_trace()
-                    return {
-                        "systemMessage": f"📊 Session tracking: {self.session_id[:8]} (Langfuse ready)",
-                        "suppressOutput": False
-                    }
+                    trace = self._get_trace()
+                    if trace:
+                        return {
+                            "systemMessage": f"📊 Session tracking: {self.session_id[:8]} (Langfuse ready)",
+                            "suppressOutput": False
+                        }
             else:
                 # Spawn async setup if auto_setup enabled
                 if self.langfuse_config.get('auto_setup', False):
@@ -76,27 +76,6 @@ class ObservabilityTracker:
             "systemMessage": f"📊 Session tracking: {self.session_id[:8]} (local mode)",
             "suppressOutput": False
         }
-
-    def _create_trace(self) -> None:
-        """Create Langfuse trace for this session."""
-        if not self.langfuse_client:
-            return
-
-        try:
-            self.langfuse_trace = self.langfuse_client.trace(
-                id=self.session_id,
-                name="claude-code-session",
-                user_id=self.langfuse_config.get('userId'),
-                session_id=self.session_id,
-                version=self.langfuse_config.get('version'),
-                tags=self.langfuse_config.get('tags'),
-                metadata={
-                    'project': self.project_dir.name,
-                    'project_dir': str(self.project_dir)
-                }
-            )
-        except Exception as e:
-            self._debug_log('TraceCreationError', {'error': str(e)})
 
     def _is_langfuse_healthy(self) -> bool:
         """Quick health check for Langfuse (<2s)."""
@@ -122,6 +101,30 @@ class ObservabilityTracker:
             )
         except ImportError:
             self.langfuse_client = None
+
+    def _get_trace(self):
+        """Get or create trace for current session."""
+        if not self.langfuse_client or not self.session_id:
+            return None
+
+        try:
+            # Get existing trace or create new one
+            trace = self.langfuse_client.trace(
+                id=self.session_id,
+                name="claude-code-session",
+                user_id=self.langfuse_config.get('userId'),
+                session_id=self.session_id,
+                version=self.langfuse_config.get('version'),
+                tags=self.langfuse_config.get('tags'),
+                metadata={
+                    'project': self.project_dir.name,
+                    'project_dir': str(self.project_dir)
+                }
+            )
+            return trace
+        except Exception as e:
+            self._debug_log('TraceGetError', {'error': str(e)})
+            return None
 
     def _spawn_async_setup(self) -> None:
         """Spawn background Langfuse setup process (non-blocking)."""
@@ -182,6 +185,14 @@ class ObservabilityTracker:
         """Track tool usage and send to Langfuse immediately."""
         self._debug_log('PostToolUse', hook_input)
 
+        # Get session ID and connect
+        self.session_id = hook_input.get('session_id')
+        if not self.session_id:
+            return {"success": True, "suppressOutput": True}
+
+        self._connect_langfuse()
+        trace = self._get_trace()
+
         # Extract tool info
         tool_name = hook_input.get('tool_name', 'Unknown')
         tool_input_data = hook_input.get('tool_input', {})
@@ -204,9 +215,9 @@ class ObservabilityTracker:
             return data
 
         # Send to Langfuse immediately
-        if self.langfuse_trace:
+        if trace:
             try:
-                self.langfuse_trace.span(
+                trace.span(
                     name=f"tool_{tool_name}",
                     start_time=datetime.now(),
                     input=truncate_data(tool_input_data),
@@ -230,6 +241,14 @@ class ObservabilityTracker:
         """Track user prompt submission and send to Langfuse immediately."""
         self._debug_log('UserPromptSubmit', hook_input)
 
+        # Get session ID and connect
+        self.session_id = hook_input.get('session_id')
+        if not self.session_id:
+            return {"success": True, "suppressOutput": True}
+
+        self._connect_langfuse()
+        trace = self._get_trace()
+
         # Extract prompt content
         prompt_content = (
             hook_input.get('user_message') or
@@ -241,9 +260,9 @@ class ObservabilityTracker:
         )
 
         # Send to Langfuse immediately
-        if self.langfuse_trace:
+        if trace:
             try:
-                self.langfuse_trace.event(
+                trace.event(
                     name="user_prompt_submit",
                     start_time=datetime.now(),
                     input=prompt_content,
@@ -266,8 +285,16 @@ class ObservabilityTracker:
         """Finalize session tracking and create GENERATION with prompt+response."""
         self._debug_log('Stop', hook_input)
 
+        # Get session ID and connect
+        self.session_id = hook_input.get('session_id')
+        if not self.session_id:
+            return {"success": True, "suppressOutput": True}
+
+        self._connect_langfuse()
+        trace = self._get_trace()
+
         # Extract prompt and response from transcript for GENERATION
-        if self.langfuse_trace:
+        if trace:
             try:
                 transcript_path = hook_input.get('transcript_path')
                 if transcript_path and Path(transcript_path).exists():
@@ -276,7 +303,7 @@ class ObservabilityTracker:
 
                     if user_prompt and assistant_response:
                         # Create GENERATION with complete prompt+response pair
-                        self.langfuse_trace.generation(
+                        trace.generation(
                             name="assistant_response",
                             start_time=datetime.now(),
                             input=user_prompt,
@@ -288,7 +315,7 @@ class ObservabilityTracker:
                         )
 
                 # Update trace with final metadata
-                self.langfuse_trace.update(
+                trace.update(
                     output={'status': 'completed'}
                 )
                 self.langfuse_client.flush()
