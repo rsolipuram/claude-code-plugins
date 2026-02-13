@@ -446,19 +446,6 @@ class ObservabilityTracker:
                 }
             )
 
-            # NEW: Add prompt/response pairs as generations
-            for prompt_record in self.session_data.get('prompts', []):
-                if prompt_record.get('prompt'):
-                    generation = trace.generation(
-                        name=f"prompt_{prompt_record['index']}",
-                        start_time=datetime.fromisoformat(prompt_record['timestamp']),
-                        end_time=datetime.fromisoformat(prompt_record.get('response_timestamp', prompt_record['timestamp'])),
-                        input=prompt_record['prompt'],
-                        output=prompt_record.get('response', ''),
-                        model="claude-sonnet-4-5",
-                        metadata=prompt_record.get('metadata', {})
-                    )
-
             # Add tool usage as spans
             for tool_record in self.session_data['tools_used']:
                 trace.span(
