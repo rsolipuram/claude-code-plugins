@@ -29,6 +29,17 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
+            "async": true,
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -48,6 +59,7 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
+            "async": true,
             "timeout": 5
           }
         ]
@@ -60,6 +72,7 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
+            "async": true,
             "timeout": 5
           }
         ]
@@ -87,11 +100,38 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
+            "async": true,
             "timeout": 10
           },
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/claude-md-async.py",
+            "async": true,
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
+            "async": true,
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
             "async": true,
             "timeout": 5
           }
