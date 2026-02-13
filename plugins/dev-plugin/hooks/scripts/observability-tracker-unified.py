@@ -40,7 +40,7 @@ class ObservabilityTracker:
 
     def handle_session_start(self, hook_input: Dict) -> Dict:
         """Initialize session tracking and create Langfuse trace."""
-        self._debug_log('SessionStart', {'hook_input_keys': list(hook_input.keys())})
+        self._debug_log('SessionStart', hook_input)
 
         # Get session ID
         self.session_id = hook_input.get('session_id', self._generate_session_id())
@@ -180,10 +180,7 @@ class ObservabilityTracker:
 
     def handle_tool_use(self, hook_input: Dict) -> Dict:
         """Track tool usage and send to Langfuse immediately."""
-        self._debug_log('PostToolUse', {
-            'hook_input_keys': list(hook_input.keys()),
-            'hook_input_sample': {k: str(v)[:200] if v else None for k, v in hook_input.items()}
-        })
+        self._debug_log('PostToolUse', hook_input)
 
         # Extract tool info
         tool_name = hook_input.get('tool_name', 'Unknown')
@@ -231,10 +228,7 @@ class ObservabilityTracker:
 
     def handle_prompt(self, hook_input: Dict) -> Dict:
         """Track user prompt submission and send to Langfuse immediately."""
-        self._debug_log('UserPromptSubmit', {
-            'hook_input_keys': list(hook_input.keys()),
-            'hook_input_sample': {k: str(v)[:200] if v else None for k, v in hook_input.items()}
-        })
+        self._debug_log('UserPromptSubmit', hook_input)
 
         # Extract prompt content
         prompt_content = (
@@ -270,9 +264,7 @@ class ObservabilityTracker:
 
     def handle_stop(self, hook_input: Dict) -> Dict:
         """Finalize session tracking and create GENERATION with prompt+response."""
-        self._debug_log('Stop', {
-            'hook_input_keys': list(hook_input.keys())
-        })
+        self._debug_log('Stop', hook_input)
 
         # Extract prompt and response from transcript for GENERATION
         if self.langfuse_trace:
