@@ -1,2 +1,43 @@
-sessions/*
-current_session.json
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Observability data (sessions tracked locally)
+.claude/observability/sessions/
+.claude/observability/test-sessions/
+.claude/observability/current-session.json
+
+# Async logs
+.claude/async-logs/
+
+# Test scripts (root level only)
+/test-*.py
+/check-*.py
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Local plugin settings (contains API keys)
+.claude/*.local.md
+
+# Temporary files
+*.tmp
+*.bak
