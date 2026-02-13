@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-Unified Observability Tracker for Claude Code sessions.
-Handles Langfuse setup, session tracking, and data persistence.
+Real-time Observability Tracker for Claude Code sessions.
+Sends events to Langfuse immediately as they happen.
 
 Features:
 - Auto-setup Langfuse environment (async)
-- Track sessions, tools, files, prompts
-- Persist data locally + sync to Langfuse
-- Graceful fallback to local JSON
+- Real-time event tracking to Langfuse
+- Optional debug logging
 """
 
 import json
@@ -23,15 +22,16 @@ import hashlib
 
 
 class ObservabilityTracker:
-    """Unified observability tracker with Langfuse management."""
+    """Real-time observability tracker with Langfuse management."""
 
     def __init__(self, project_dir: Path, config: Dict):
         self.project_dir = project_dir
         self.config = config
         self.obs_config = config.get('observability', {})
         self.langfuse_config = self.obs_config.get('langfuse', {})
-        self.session_data = {}
         self.langfuse_client = None
+        self.langfuse_trace = None
+        self.session_id = None
         self.debug_mode = self.obs_config.get('debug', False)
 
     # ========================================
@@ -39,67 +39,64 @@ class ObservabilityTracker:
     # ========================================
 
     def handle_session_start(self, hook_input: Dict) -> Dict:
-        """Initialize session tracking and check/start Langfuse."""
+        """Initialize session tracking and create Langfuse trace."""
+        self._debug_log('SessionStart', {'hook_input_keys': list(hook_input.keys())})
 
-        # Initialize session (quick, <1s)
-        session_id = self._initialize_session(hook_input)
+        # Get session ID
+        self.session_id = hook_input.get('session_id', self._generate_session_id())
 
         # Quick Langfuse health check
         if self.langfuse_config.get('enabled', False):
             if self._is_langfuse_healthy():
                 self._connect_langfuse()
-                return {
-                    "systemMessage": f"📊 Session tracking: {session_id[:8]} (Langfuse ready)",
-                    "suppressOutput": False
-                }
+                if self.langfuse_client:
+                    # Create trace immediately
+                    self._create_trace()
+                    return {
+                        "systemMessage": f"📊 Session tracking: {self.session_id[:8]} (Langfuse ready)",
+                        "suppressOutput": False
+                    }
             else:
                 # Spawn async setup if auto_setup enabled
                 if self.langfuse_config.get('auto_setup', False):
                     self._spawn_async_setup()
                     return {
-                        "systemMessage": f"📊 Session tracking: {session_id[:8]} (Langfuse setup running in background)",
+                        "systemMessage": f"📊 Session tracking: {self.session_id[:8]} (Langfuse setup running in background)",
                         "suppressOutput": False
                     }
                 elif self.langfuse_config.get('auto_start', False):
                     # Just try to start if already installed
                     self._try_start_langfuse()
                     return {
-                        "systemMessage": f"📊 Session tracking: {session_id[:8]} (Langfuse starting)",
-                        "suppressOutput": False
-                    }
-                else:
-                    return {
-                        "systemMessage": f"📊 Session tracking: {session_id[:8]} (local mode)",
+                        "systemMessage": f"📊 Session tracking: {self.session_id[:8]} (Langfuse starting)",
                         "suppressOutput": False
                     }
 
         return {
-            "systemMessage": f"📊 Session tracking initialized: {session_id[:8]}",
+            "systemMessage": f"📊 Session tracking: {self.session_id[:8]} (local mode)",
             "suppressOutput": False
         }
 
-    def _initialize_session(self, hook_input: Dict) -> str:
-        """Initialize session data structure."""
-        session_id = hook_input.get('session_id', self._generate_session_id())
+    def _create_trace(self) -> None:
+        """Create Langfuse trace for this session."""
+        if not self.langfuse_client:
+            return
 
-        self.session_data = {
-            'session_id': session_id,
-            'project_dir': str(self.project_dir),
-            'project_name': self.project_dir.name,
-            'start_time': datetime.now().isoformat(),
-            'tools_used': [],
-            'files_modified': [],
-            'files_created': [],
-            'files_deleted': [],
-            'errors': [],
-            'total_tool_calls': 0,
-            'prompts_submitted': 0,
-            'prompts': [],  # NEW: Track individual prompt/response pairs
-            'hook_event': 'SessionStart'
-        }
-
-        self._save_session()
-        return session_id
+        try:
+            self.langfuse_trace = self.langfuse_client.trace(
+                id=self.session_id,
+                name="claude-code-session",
+                user_id=self.langfuse_config.get('userId'),
+                session_id=self.session_id,
+                version=self.langfuse_config.get('version'),
+                tags=self.langfuse_config.get('tags'),
+                metadata={
+                    'project': self.project_dir.name,
+                    'project_dir': str(self.project_dir)
+                }
+            )
+        except Exception as e:
+            self._debug_log('TraceCreationError', {'error': str(e)})
 
     def _is_langfuse_healthy(self) -> bool:
         """Quick health check for Langfuse (<2s)."""
@@ -182,33 +179,25 @@ class ObservabilityTracker:
     # ========================================
 
     def handle_tool_use(self, hook_input: Dict) -> Dict:
-        """Track tool usage (PostToolUse hook)."""
+        """Track tool usage and send to Langfuse immediately."""
         self._debug_log('PostToolUse', {
             'hook_input_keys': list(hook_input.keys()),
             'hook_input_sample': {k: str(v)[:200] if v else None for k, v in hook_input.items()}
         })
 
-        self._load_session()
-
-        if not self.session_data:
-            return {"success": True, "suppressOutput": True}
-
         # Extract tool info
         tool_name = hook_input.get('tool_name', 'Unknown')
         tool_input_data = hook_input.get('tool_input', {})
-
-        # Extract tool output - field name is 'tool_response' in PostToolUse!
         tool_result = (
-            hook_input.get('tool_response') or  # ← Correct field name!
+            hook_input.get('tool_response') or
             hook_input.get('tool_result') or
             hook_input.get('result') or
             hook_input.get('output') or
             {}
         )
 
-        # Track tool with input/output (limit size to avoid bloat)
+        # Truncate large data
         def truncate_data(data, max_length=1000):
-            """Truncate large data for storage."""
             if isinstance(data, str) and len(data) > max_length:
                 return data[:max_length] + '... (truncated)'
             elif isinstance(data, dict):
@@ -217,27 +206,22 @@ class ObservabilityTracker:
                 return [truncate_data(item, max_length) for item in data[:10]] + ['... (truncated)']
             return data
 
-        tool_record = {
-            'tool': tool_name,
-            'timestamp': datetime.now().isoformat(),
-            'success': not isinstance(tool_result, dict) or not tool_result.get('error'),
-            'input': truncate_data(tool_input_data),
-            'output': truncate_data(tool_result) if tool_result else None
-        }
-
-        # Track file operations
-        if tool_name in ['Edit', 'Write']:
-            file_path = tool_input_data.get('file_path', '')
-            if file_path:
-                if tool_name == 'Edit' and file_path not in self.session_data['files_modified']:
-                    self.session_data['files_modified'].append(file_path)
-                elif tool_name == 'Write' and file_path not in self.session_data['files_created']:
-                    self.session_data['files_created'].append(file_path)
-
-        self.session_data['tools_used'].append(tool_record)
-        self.session_data['total_tool_calls'] += 1
-
-        self._save_session()
+        # Send to Langfuse immediately
+        if self.langfuse_trace:
+            try:
+                self.langfuse_trace.span(
+                    name=f"tool_{tool_name}",
+                    start_time=datetime.now(),
+                    input=truncate_data(tool_input_data),
+                    output=truncate_data(tool_result) if tool_result else None,
+                    metadata={
+                        'success': not isinstance(tool_result, dict) or not tool_result.get('error'),
+                        'tool': tool_name
+                    }
+                )
+                self.langfuse_client.flush()
+            except Exception as e:
+                self._debug_log('SpanCreationError', {'error': str(e)})
 
         return {"success": True, "suppressOutput": True}
 
@@ -246,19 +230,13 @@ class ObservabilityTracker:
     # ========================================
 
     def handle_prompt(self, hook_input: Dict) -> Dict:
-        """Track user prompt submission (UserPromptSubmit hook)."""
+        """Track user prompt submission and send to Langfuse immediately."""
         self._debug_log('UserPromptSubmit', {
             'hook_input_keys': list(hook_input.keys()),
             'hook_input_sample': {k: str(v)[:200] if v else None for k, v in hook_input.items()}
         })
 
-        self._load_session()
-
-        if not self.session_data:
-            # Initialize if needed
-            self._initialize_session(hook_input)
-
-        # NEW: Capture actual prompt content
+        # Extract prompt content
         prompt_content = (
             hook_input.get('user_message') or
             hook_input.get('prompt') or
@@ -268,21 +246,20 @@ class ObservabilityTracker:
             ''
         )
 
-        prompt_record = {
-            'index': self.session_data['prompts_submitted'],
-            'timestamp': datetime.now().isoformat(),
-            'prompt': prompt_content,
-            'response': None,  # Will be filled later
-            'metadata': {
-                'raw_hook_input_keys': list(hook_input.keys())  # Debug: see what fields are available
-            }
-        }
-
-        self.session_data['prompts'].append(prompt_record)
-        self.session_data['prompts_submitted'] += 1
-        self.session_data['last_prompt_time'] = datetime.now().isoformat()
-
-        self._save_session()
+        # Send to Langfuse immediately
+        if self.langfuse_trace:
+            try:
+                self.langfuse_trace.generation(
+                    name="user_prompt",
+                    start_time=datetime.now(),
+                    input=prompt_content,
+                    metadata={
+                        'event': 'UserPromptSubmit'
+                    }
+                )
+                self.langfuse_client.flush()
+            except Exception as e:
+                self._debug_log('GenerationCreationError', {'error': str(e)})
 
         return {"success": True, "suppressOutput": True}
 
@@ -291,177 +268,27 @@ class ObservabilityTracker:
     # ========================================
 
     def handle_stop(self, hook_input: Dict) -> Dict:
-        """Finalize session tracking (Stop hook)."""
+        """Finalize session tracking and close Langfuse trace."""
         self._debug_log('Stop', {
-            'hook_input_keys': list(hook_input.keys()),
-            'hook_input_sample': {k: str(v)[:200] if v else None for k, v in hook_input.items()}
+            'hook_input_keys': list(hook_input.keys())
         })
 
-        self._load_session()
-
-        if not self.session_data:
-            return {"success": True, "suppressOutput": True}
-
-        # NEW: Extract assistant response from transcript file
-        transcript_path = hook_input.get('transcript_path')
-        response_content = ''
-
-        if transcript_path and Path(transcript_path).exists():
+        # Finalize trace in Langfuse
+        if self.langfuse_trace:
             try:
-                # Read the transcript JSONL file
-                transcript_lines = Path(transcript_path).read_text().strip().split('\n')
+                # Update trace with final metadata
+                self.langfuse_trace.update(
+                    output={'status': 'completed'}
+                )
+                self.langfuse_client.flush()
+            except Exception as e:
+                self._debug_log('TraceFinalizeError', {'error': str(e)})
 
-                # Find the last assistant message
-                for line in reversed(transcript_lines):
-                    try:
-                        entry = json.loads(line)
-                        if entry.get('role') == 'assistant' and entry.get('content'):
-                            # Extract text content from assistant message
-                            content = entry['content']
-                            if isinstance(content, list):
-                                # Content is array of text/tool_use blocks
-                                text_parts = [
-                                    block.get('text', '')
-                                    for block in content
-                                    if isinstance(block, dict) and block.get('type') == 'text'
-                                ]
-                                response_content = '\n'.join(text_parts)
-                            elif isinstance(content, str):
-                                response_content = content
-                            break
-                    except (json.JSONDecodeError, KeyError):
-                        continue
-            except Exception:
-                pass  # Graceful fallback if transcript reading fails
-
-        # Update the last prompt with the response
-        if self.session_data.get('prompts') and response_content:
-            self.session_data['prompts'][-1]['response'] = response_content
-            self.session_data['prompts'][-1]['response_timestamp'] = datetime.now().isoformat()
-
-        # Add end time and duration
-        self.session_data['end_time'] = datetime.now().isoformat()
-        start = datetime.fromisoformat(self.session_data['start_time'])
-        end = datetime.fromisoformat(self.session_data['end_time'])
-        duration = (end - start).total_seconds()
-        self.session_data['duration_seconds'] = duration
-
-        # Calculate summary
-        self.session_data['summary'] = {
-            'total_tools': self.session_data['total_tool_calls'],
-            'unique_tools': len(set(t['tool'] for t in self.session_data['tools_used'])),
-            'files_modified': len(self.session_data['files_modified']),
-            'files_created': len(self.session_data['files_created']),
-            'errors': len(self.session_data['errors']),
-            'duration_minutes': round(duration / 60, 2)
-        }
-
-        # Save final session
-        self._save_session()
-
-        # Send to Langfuse (with fallback)
-        self._send_to_langfuse()
-
-        # Archive locally
-        self._archive_session()
-
-        summary = self.session_data['summary']
         return {
-            "systemMessage": f"📊 Session complete: {summary['total_tools']} tools, {summary['files_modified']} files modified, {summary['duration_minutes']}min",
+            "systemMessage": "📊 Session complete",
             "suppressOutput": False
         }
 
-    # ========================================
-    # DATA PERSISTENCE
-    # ========================================
-
-    def _save_session(self) -> None:
-        """Save session to local JSON (primary storage)."""
-        obs_dir = self.project_dir / '.claude' / 'observability'
-        obs_dir.mkdir(parents=True, exist_ok=True)
-
-        session_file = obs_dir / 'current-session.json'
-        session_file.write_text(json.dumps(self.session_data, indent=2))
-
-    def _load_session(self) -> None:
-        """Load current session from local JSON."""
-        session_file = self.project_dir / '.claude' / 'observability' / 'current-session.json'
-        if session_file.exists():
-            try:
-                self.session_data = json.loads(session_file.read_text())
-                # Ensure prompts array exists (backward compatibility)
-                if 'prompts' not in self.session_data:
-                    self.session_data['prompts'] = []
-            except Exception:
-                self.session_data = {}
-
-    def _archive_session(self) -> None:
-        """Archive completed session to sessions/ directory."""
-        obs_dir = self.project_dir / '.claude' / 'observability' / 'sessions'
-        obs_dir.mkdir(parents=True, exist_ok=True)
-
-        timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-        session_id = self.session_data.get('session_id', 'unknown')[:8]
-        archive_file = obs_dir / f'session-{timestamp}-{session_id}.json'
-
-        archive_file.write_text(json.dumps(self.session_data, indent=2))
-
-        # Clean up current session
-        session_file = self.project_dir / '.claude' / 'observability' / 'current-session.json'
-        if session_file.exists():
-            session_file.unlink()
-
-    def _send_to_langfuse(self) -> None:
-        """Send session data to Langfuse (with graceful fallback)."""
-        if not self.langfuse_config.get('enabled', False):
-            return
-
-        # Try to connect if not already connected
-        if not self.langfuse_client:
-            self._connect_langfuse()
-
-        if not self.langfuse_client:
-            return  # SDK not available
-
-        try:
-            # Create trace using legacy HTTP API
-            trace = self.langfuse_client.trace(
-                id=self.session_data['session_id'],
-                name="claude-code-session",
-                user_id=self.langfuse_config.get('userId'),
-                session_id=self.session_data['session_id'],
-                version=self.langfuse_config.get('version'),
-                tags=self.langfuse_config.get('tags'),
-                metadata={
-                    'project': self.session_data['project_name'],
-                    'project_dir': self.session_data['project_dir'],
-                    'duration_seconds': self.session_data.get('duration_seconds', 0),
-                    'summary': self.session_data.get('summary', {})
-                },
-                input={'prompts_submitted': self.session_data.get('prompts_submitted', 0)},
-                output={
-                    'files_modified': self.session_data['files_modified'],
-                    'files_created': self.session_data['files_created'],
-                    'total_tools': self.session_data['total_tool_calls']
-                }
-            )
-
-            # Add tool usage as spans
-            for tool_record in self.session_data['tools_used']:
-                trace.span(
-                    name=f"tool_{tool_record['tool']}",
-                    start_time=datetime.fromisoformat(tool_record['timestamp']),
-                    input=tool_record.get('input'),
-                    output=tool_record.get('output'),
-                    metadata={'success': tool_record['success']}
-                )
-
-            # Flush
-            self.langfuse_client.flush()
-
-        except Exception as e:
-            # Graceful fallback - local JSON is source of truth
-            self.session_data['langfuse_error'] = str(e)
 
     # ========================================
     # UTILITIES
