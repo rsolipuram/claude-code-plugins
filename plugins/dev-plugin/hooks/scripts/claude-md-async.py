@@ -70,9 +70,9 @@ Invoke the skill now.
             f.write("---\n")
             f.flush()
 
-            # Launch super-claude with skill invocation
+            # Launch claude with skill invocation
             result = subprocess.run(
-                ['super-claude'],
+                ['claude'],
                 input=prompt,
                 text=True,
                 stdout=f,

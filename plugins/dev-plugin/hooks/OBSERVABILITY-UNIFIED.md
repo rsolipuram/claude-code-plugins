@@ -94,7 +94,7 @@ auto_start: true
 
 Just use Claude Code normally:
 ```bash
-super-claude --plugin-dir ./plugins/dev-plugin/
+claude --plugin-dir ./plugins/dev-plugin/
 ```
 
 **SessionStart:**
