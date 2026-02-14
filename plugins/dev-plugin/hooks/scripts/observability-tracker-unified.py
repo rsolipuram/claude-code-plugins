@@ -107,8 +107,16 @@ class ObservabilityTracker:
             sk = self.langfuse_config.get('secret_key') or os.environ.get('LANGFUSE_SECRET_KEY')
             host = self.langfuse_config.get('host') or os.environ.get('LANGFUSE_HOST', 'http://localhost:3000')
 
+            self._debug_log('ConnectAttempt', {
+                'has_pk': bool(pk),
+                'has_sk': bool(sk),
+                'pk_preview': f"{pk[:10]}..." if pk else None,
+                'host': host,
+                'config_keys': list(self.langfuse_config.keys())
+            })
+
             if not pk or not sk:
-                self._debug_log('ConnectSkip', {'reason': 'Missing keys'})
+                self._debug_log('ConnectSkip', {'reason': 'Missing keys', 'config': self.langfuse_config})
                 return
 
             self.langfuse_client = langfuse.Langfuse(
@@ -117,8 +125,17 @@ class ObservabilityTracker:
                 host=host
             )
             
-            # Verify client has required methods
-            if not hasattr(self.langfuse_client, 'trace'):
+            # Verify client state
+            client_enabled = getattr(self.langfuse_client, 'enabled', False)
+            has_trace_attr = hasattr(self.langfuse_client, 'trace')
+            
+            self._debug_log('ClientState', {
+                'enabled': client_enabled,
+                'has_trace': has_trace_attr,
+                'dir': [a for a in dir(self.langfuse_client) if not a.startswith('_')]
+            })
+
+            if not has_trace_attr:
                 self._debug_log('ConnectError', {'error': f'Langfuse client missing trace method'})
                 self.langfuse_client = None
                 
