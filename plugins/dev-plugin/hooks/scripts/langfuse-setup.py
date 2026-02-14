@@ -4,6 +4,8 @@
 #   "langfuse",
 # ]
 # ///
+
+#TODO- INSTALL LATEST LANGFUSE SDK, DOCKER COMPOSE UP
 """
 Background Langfuse setup script.
 Runs asynchronously to set up complete Langfuse environment.
