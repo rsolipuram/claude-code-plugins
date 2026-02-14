@@ -75,7 +75,7 @@ Invoke the skill now.
 
             # Launch claude with skill invocation
             result = subprocess.run(
-                ['claude', '-p', '--plugin-dir', f'{project_dir}/plugins/dev-plugin', '--dangerously-skip-permissions'],
+                ['claude', '--plugin-dir', f'{project_dir}/plugins/dev-plugin', '--dangerously-skip-permissions'],
                 input=prompt,
                 text=True,
                 stdout=f,
