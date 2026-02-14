@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
             "async": true,
             "timeout": 5
           }
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
             "async": true,
             "timeout": 5
           }
@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/auto-format.py",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/auto-format.py",
             "timeout": 30
           }
         ]
@@ -53,7 +53,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
             "async": true,
             "timeout": 5
           }
@@ -66,7 +66,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
             "async": true,
             "timeout": 5
           }
@@ -79,28 +79,28 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/quality-check.py",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/quality-check.py",
             "timeout": 90
           },
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/git-checkpoint.py",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/git-checkpoint.py",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/notify-completion.py",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/notify-completion.py",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
             "async": true,
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/claude-md-async.py",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/claude-md-async.py",
             "async": true,
             "timeout": 5
           }
@@ -113,7 +113,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
             "async": true,
             "timeout": 10
           }
@@ -126,7 +126,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observability-tracker-unified.py",
             "async": true,
             "timeout": 5
           }

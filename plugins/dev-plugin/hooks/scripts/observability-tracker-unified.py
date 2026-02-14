@@ -96,16 +96,37 @@ class ObservabilityTracker:
 
     def _connect_langfuse(self) -> None:
         """Connect to Langfuse (sets up client for later use)."""
-        try:
-            # Use Langfuse class directly for HTTP API (not OpenTelemetry)
-            from langfuse import Langfuse
+        if self.langfuse_client:
+            return
 
-            self.langfuse_client = Langfuse(
-                host=self.langfuse_config.get('host', 'http://localhost:3000'),
-                public_key=self.langfuse_config.get('public_key', ''),
-                secret_key=self.langfuse_config.get('secret_key', '')
+        try:
+            import langfuse
+            
+            # Extract keys with fallbacks to environment variables
+            pk = self.langfuse_config.get('public_key') or os.environ.get('LANGFUSE_PUBLIC_KEY')
+            sk = self.langfuse_config.get('secret_key') or os.environ.get('LANGFUSE_SECRET_KEY')
+            host = self.langfuse_config.get('host') or os.environ.get('LANGFUSE_HOST', 'http://localhost:3000')
+
+            if not pk or not sk:
+                self._debug_log('ConnectSkip', {'reason': 'Missing keys'})
+                return
+
+            self.langfuse_client = langfuse.Langfuse(
+                public_key=pk,
+                secret_key=sk,
+                host=host
             )
+            
+            # Verify client has required methods
+            if not hasattr(self.langfuse_client, 'trace'):
+                self._debug_log('ConnectError', {'error': f'Langfuse client missing trace method'})
+                self.langfuse_client = None
+                
         except ImportError:
+            self._debug_log('ConnectError', {'error': 'langfuse module not found'})
+            self.langfuse_client = None
+        except Exception as e:
+            self._debug_log('ConnectError', {'error': str(e)})
             self.langfuse_client = None
 
     def _get_trace(self):
@@ -114,20 +135,24 @@ class ObservabilityTracker:
             return None
 
         try:
-            # Get existing trace or create new one
-            trace = self.langfuse_client.trace(
-                id=self.session_id,
-                name="claude-code-session",
-                user_id=self.langfuse_config.get('userId'),
-                session_id=self.session_id,
-                version=self.langfuse_config.get('version'),
-                tags=self.langfuse_config.get('tags'),
-                metadata={
-                    'project': self.project_dir.name,
-                    'project_dir': str(self.project_dir)
-                }
-            )
-            return trace
+            # Check if trace method exists (v2 SDK)
+            if hasattr(self.langfuse_client, 'trace'):
+                trace = self.langfuse_client.trace(
+                    id=self.session_id,
+                    name="claude-code-session",
+                    user_id=self.langfuse_config.get('userId'),
+                    session_id=self.session_id,
+                    version=self.langfuse_config.get('version'),
+                    tags=self.langfuse_config.get('tags'),
+                    metadata={
+                        'project': self.project_dir.name,
+                        'project_dir': str(self.project_dir)
+                    }
+                )
+                return trace
+            else:
+                self._debug_log('TraceError', {'error': 'Client missing trace method'})
+                return None
         except Exception as e:
             self._debug_log('TraceGetError', {'error': str(e)})
             return None
