@@ -1,8 +1,6 @@
-version: '3.8'
-
 services:
   langfuse-db:
-    image: postgres:15
+    image: postgres:16-alpine
     container_name: langfuse-postgres
     environment:
       POSTGRES_DB: langfuse
@@ -18,16 +16,39 @@ services:
       timeout: 5s
       retries: 5
 
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3-alpine
+    container_name: clickhouse
+    environment:
+      CLICKHOUSE_DB: langfuse
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: changeme
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    command: ["sh", "-c", "/entrypoint.sh -- --listen_host 0.0.0.0"]
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+
   langfuse-server:
-    image: langfuse/langfuse:2
+    image: langfuse/langfuse:3
     container_name: langfuse-server
     depends_on:
       langfuse-db:
         condition: service_healthy
+      clickhouse:
+        condition: service_healthy
     ports:
       - "3000:3000"
     environment:
+      NODE_ENV: production
       DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      CLICKHOUSE_URL: http://default:changeme@clickhouse:8123/langfuse
+      CLICKHOUSE_MIGRATION_URL: clickhouse://default:changeme@clickhouse:9000/langfuse
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: changeme
       NEXTAUTH_URL: http://localhost:3000
       NEXTAUTH_SECRET: changeme-in-production
       SALT: changeme-in-production
@@ -37,7 +58,8 @@ services:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/api/public/health || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 5
 
 volumes:
   langfuse-db-data:
+  clickhouse-data:
