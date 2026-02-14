@@ -39,6 +39,23 @@ class ObservabilityTracker:
         self.session_id = None
         self.debug_mode = self.obs_config.get('debug', False)
 
+        # NEW: State tracking for in-flight operations
+        self.active_spans = {}  # tool_use_id -> span object
+        self.subagent_traces = {}  # agent_id -> trace object
+
+        # NEW: Session metrics aggregation
+        self.session_metrics = {
+            'tool_count': 0,
+            'tool_errors': 0,
+            'tool_successes': 0,
+            'tools_by_name': {},
+            'subagent_count': 0,
+            'prompt_count': 0,
+            'session_start_time': None,
+            'first_tool_time': None,
+            'last_tool_time': None
+        }
+
     # ========================================
     # SESSION START: Quick Check + Async Setup
     # ========================================
@@ -49,6 +66,9 @@ class ObservabilityTracker:
 
         # Get session ID
         self.session_id = hook_input.get('session_id', self._generate_session_id())
+
+        # Initialize session start time
+        self.session_metrics['session_start_time'] = datetime.now()
 
         # Quick Langfuse health check
         if self.langfuse_config.get('enabled', False):
@@ -213,12 +233,17 @@ class ObservabilityTracker:
     # ========================================
 
     def handle_pre_tool_use(self, hook_input: Dict) -> Dict:
-        """Track tool usage before execution (PreToolUse)."""
+        """Start a span for tool execution (PreToolUse)."""
         self._debug_log('PreToolUse', hook_input)
 
-        # Get session ID and connect
         self.session_id = hook_input.get('session_id')
         if not self.session_id:
+            return {"success": True, "suppressOutput": True}
+
+        # Extract correlation ID
+        tool_use_id = hook_input.get('tool_use_id')
+        if not tool_use_id:
+            self._debug_log('PreToolUseMissingID', {'warning': 'No tool_use_id'})
             return {"success": True, "suppressOutput": True}
 
         self._connect_langfuse()
@@ -228,39 +253,74 @@ class ObservabilityTracker:
         tool_name = hook_input.get('tool_name', 'Unknown')
         tool_input_data = hook_input.get('tool_input', {})
 
-        # Send to Langfuse immediately (no truncation)
+        # Update metrics
+        self.session_metrics['tool_count'] += 1
+        self.session_metrics['tools_by_name'][tool_name] = \
+            self.session_metrics['tools_by_name'].get(tool_name, 0) + 1
+
+        if not self.session_metrics['first_tool_time']:
+            self.session_metrics['first_tool_time'] = datetime.now()
+
+        # Create and START span
         if trace:
             try:
-                trace.event(
-                    name=f"pretool_{tool_name}",
-                    start_time=datetime.now(),
+                # Check if span() method exists (SDK compatibility)
+                span_func = getattr(trace, 'span', None)
+                if not callable(span_func):
+                    self._debug_log('SpanNotSupported', {'fallback': 'using events'})
+                    # Fallback to old event-based approach
+                    trace.event(
+                        name=f"pretool_{tool_name}",
+                        start_time=datetime.now(),
+                        input=tool_input_data,
+                        metadata={'event': 'PreToolUse', 'tool': tool_name, 'tool_use_id': tool_use_id}
+                    )
+                    self.langfuse_client.flush()
+                    return {"success": True, "suppressOutput": True}
+
+                span = trace.span(
+                    name=f"tool_{tool_name}",
                     input=tool_input_data,
                     metadata={
-                        'event': 'PreToolUse',
-                        'tool': tool_name
+                        'event': 'ToolExecution',
+                        'tool': tool_name,
+                        'tool_use_id': tool_use_id,
+                        'cwd': hook_input.get('cwd'),
+                        'permission_mode': hook_input.get('permission_mode')
                     }
                 )
+
+                # Store for correlation in PostToolUse
+                self.active_spans[tool_use_id] = span
+
                 self.langfuse_client.flush()
+                self._debug_log('SpanStarted', {'tool_use_id': tool_use_id, 'tool': tool_name})
             except Exception as e:
-                self._debug_log('PreToolEventError', {'error': str(e)})
+                self._debug_log('PreToolSpanError', {'error': str(e)})
 
         return {"success": True, "suppressOutput": True}
 
     def handle_tool_use(self, hook_input: Dict) -> Dict:
-        """Track tool usage and send to Langfuse immediately."""
+        """Complete the span started in PreToolUse (PostToolUse)."""
         self._debug_log('PostToolUse', hook_input)
 
-        # Get session ID and connect
         self.session_id = hook_input.get('session_id')
         if not self.session_id:
             return {"success": True, "suppressOutput": True}
 
+        # Extract correlation ID
+        tool_use_id = hook_input.get('tool_use_id')
+        if not tool_use_id:
+            self._debug_log('PostToolUseMissingID', {'warning': 'No tool_use_id'})
+            return {"success": True, "suppressOutput": True}
+
         self._connect_langfuse()
-        trace = self._get_trace()
+
+        # Retrieve the span started in PreToolUse
+        span = self.active_spans.get(tool_use_id)
 
         # Extract tool info
         tool_name = hook_input.get('tool_name', 'Unknown')
-        tool_input_data = hook_input.get('tool_input', {})
         tool_result = (
             hook_input.get('tool_response') or
             hook_input.get('tool_result') or
@@ -269,22 +329,42 @@ class ObservabilityTracker:
             {}
         )
 
-        # Send to Langfuse immediately (no truncation)
-        if trace:
+        # Determine success/failure
+        is_error = isinstance(tool_result, dict) and tool_result.get('error')
+        if is_error:
+            self.session_metrics['tool_errors'] += 1
+        else:
+            self.session_metrics['tool_successes'] += 1
+
+        self.session_metrics['last_tool_time'] = datetime.now()
+
+        # Update and END the span
+        if span:
             try:
-                trace.event(
-                    name=f"Posttool_{tool_name}",
-                    start_time=datetime.now(),
-                    input=tool_input_data,
+                span.end(
                     output=tool_result if tool_result else None,
                     metadata={
-                        'success': not isinstance(tool_result, dict) or not tool_result.get('error'),
+                        'success': not is_error,
                         'tool': tool_name
-                    }
+                    },
+                    level='ERROR' if is_error else 'DEFAULT',
+                    status_message=str(tool_result.get('error')) if is_error else None
                 )
+
+                # Remove from active spans
+                del self.active_spans[tool_use_id]
+
                 self.langfuse_client.flush()
+                self._debug_log('SpanEnded', {'tool_use_id': tool_use_id, 'tool': tool_name, 'success': not is_error})
             except Exception as e:
-                self._debug_log('SpanCreationError', {'error': str(e)})
+                self._debug_log('PostToolSpanError', {'error': str(e)})
+        else:
+            # Span not found - possibly missed PreToolUse or orphaned PostToolUse
+            self._debug_log('OrphanedPostToolUse', {
+                'tool_use_id': tool_use_id,
+                'tool_name': tool_name,
+                'warning': 'No matching PreToolUse span found'
+            })
 
         return {"success": True, "suppressOutput": True}
 
@@ -300,6 +380,9 @@ class ObservabilityTracker:
         self.session_id = hook_input.get('session_id')
         if not self.session_id:
             return {"success": True, "suppressOutput": True}
+
+        # Update metrics
+        self.session_metrics['prompt_count'] += 1
 
         self._connect_langfuse()
         trace = self._get_trace()
@@ -337,82 +420,96 @@ class ObservabilityTracker:
     # ========================================
 
     def handle_subagent_start(self, hook_input: Dict) -> Dict:
-        """Track subagent start."""
+        """Create a new child trace for subagent execution."""
         self._debug_log('SubagentStart', hook_input)
 
-        # Get session ID and connect
         self.session_id = hook_input.get('session_id')
         if not self.session_id:
             return {"success": True, "suppressOutput": True}
 
         self._connect_langfuse()
-        trace = self._get_trace()
+        parent_trace = self._get_trace()
 
-        # Extract agent info (correct field names)
+        # Extract agent info
         agent_type = hook_input.get('agent_type', 'Unknown')
         agent_id = hook_input.get('agent_id')
         prompt = hook_input.get('prompt', '')
 
-        # Send to Langfuse immediately
-        if trace:
+        self.session_metrics['subagent_count'] += 1
+
+        # Create a NEW trace for the subagent, linked to parent
+        if parent_trace and agent_id and self.langfuse_client:
             try:
-                trace.event(
-                    name="subagent_start",
-                    start_time=datetime.now(),
-                    input=prompt,
+                # Create child trace
+                subagent_trace = self.langfuse_client.trace(
+                    id=agent_id,
+                    name=f"subagent_{agent_type}",
+                    session_id=self.session_id,
                     metadata={
-                        'event': 'SubagentStart',
+                        'event': 'SubagentExecution',
                         'agent_type': agent_type,
-                        'agent_id': agent_id
-                    }
+                        'agent_id': agent_id,
+                        'parent_session_id': self.session_id,
+                        'parent_trace_id': parent_trace.id if hasattr(parent_trace, 'id') else None
+                    },
+                    input=prompt
                 )
+
+                # Store for SubagentStop
+                self.subagent_traces[agent_id] = subagent_trace
+
                 self.langfuse_client.flush()
+                self._debug_log('SubagentTraceCreated', {'agent_id': agent_id, 'agent_type': agent_type})
             except Exception as e:
                 self._debug_log('SubagentStartError', {'error': str(e)})
 
         return {"success": True, "suppressOutput": True}
 
     def handle_subagent_stop(self, hook_input: Dict) -> Dict:
-        """Track subagent completion."""
+        """Complete the subagent trace started in SubagentStart."""
         self._debug_log('SubagentStop', hook_input)
 
-        # Get session ID and connect
         self.session_id = hook_input.get('session_id')
         if not self.session_id:
             return {"success": True, "suppressOutput": True}
 
         self._connect_langfuse()
-        trace = self._get_trace()
 
-        # Extract agent info (correct field names)
-        agent_type = hook_input.get('agent_type', 'Unknown')
+        # Extract agent info
         agent_id = hook_input.get('agent_id')
         agent_transcript = hook_input.get('agent_transcript_path')
 
-        # Send to Langfuse immediately
-        if trace:
+        # Retrieve the subagent trace
+        subagent_trace = self.subagent_traces.get(agent_id)
+
+        if subagent_trace:
             try:
-                trace.event(
-                    name="subagent_stop",
-                    start_time=datetime.now(),
+                subagent_trace.update(
+                    output={'status': 'completed'},
                     metadata={
-                        'event': 'SubagentStop',
-                        'agent_type': agent_type,
-                        'agent_id': agent_id,
                         'agent_transcript_path': agent_transcript
                     }
                 )
+
+                # Remove from active subagent traces
+                del self.subagent_traces[agent_id]
+
                 self.langfuse_client.flush()
+                self._debug_log('SubagentTraceCompleted', {'agent_id': agent_id})
             except Exception as e:
                 self._debug_log('SubagentStopError', {'error': str(e)})
+        else:
+            self._debug_log('OrphanedSubagentStop', {
+                'agent_id': agent_id,
+                'warning': 'No matching SubagentStart trace found'
+            })
 
         return {"success": True, "suppressOutput": True}
 
     def handle_stop(self, hook_input: Dict) -> Dict:
-        """Finalize session tracking and create GENERATION with prompt+response."""
+        """Finalize session tracking with aggregated metrics and cleanup."""
         self._debug_log('Stop', hook_input)
 
-        # Get session ID and connect
         self.session_id = hook_input.get('session_id')
         if not self.session_id:
             return {"success": True, "suppressOutput": True}
@@ -420,37 +517,65 @@ class ObservabilityTracker:
         self._connect_langfuse()
         trace = self._get_trace()
 
-        # Extract prompt and response from transcript for GENERATION
+        # Clean up any orphaned spans
+        if self.active_spans:
+            self._debug_log('OrphanedSpans', {
+                'count': len(self.active_spans),
+                'tool_use_ids': list(self.active_spans.keys())
+            })
+            for tool_use_id, span in list(self.active_spans.items()):
+                try:
+                    span.end(
+                        status_message='Orphaned span - no PostToolUse received',
+                        level='WARNING'
+                    )
+                    del self.active_spans[tool_use_id]
+                except Exception:
+                    pass
+
+        # Calculate session metrics
+        session_end_time = datetime.now()
+        session_metrics = self._compute_session_metrics(session_end_time)
+
         if trace:
             try:
+                # Extract conversation from transcript
                 transcript_path = hook_input.get('transcript_path')
                 if transcript_path and Path(transcript_path).exists():
-                    # Read transcript to get last prompt and response
                     user_prompt, assistant_response = self._extract_last_conversation(transcript_path)
 
                     if user_prompt and assistant_response:
-                        # Create GENERATION with complete prompt+response pair
                         trace.generation(
                             name="assistant_response",
                             start_time=datetime.now(),
                             input=user_prompt,
                             output=assistant_response,
-                            metadata={
-                                'event': 'Stop',
-                                'type': 'conversation_turn'
-                            }
+                            metadata={'event': 'Stop', 'type': 'conversation_turn'}
                         )
 
-                # Update trace with final metadata
+                # Update trace with final metrics
                 trace.update(
-                    output={'status': 'completed'}
+                    output={
+                        'status': 'completed',
+                        'metrics': session_metrics
+                    },
+                    metadata={
+                        'session_metrics': session_metrics
+                    }
                 )
                 self.langfuse_client.flush()
             except Exception as e:
                 self._debug_log('TraceFinalizeError', {'error': str(e)})
 
+        # Format message with key metrics
+        message = f"📊 Session complete - {session_metrics['total_tools']} tools"
+        if session_metrics['duration_minutes'] > 0:
+            message += f", {session_metrics['duration_minutes']:.1f}min"
+        if session_metrics['tool_errors'] > 0:
+            message += f", {session_metrics['tool_errors']} errors"
+
         return {
-            "systemMessage": "📊 Session complete",
+            "systemMessage": message,
             "suppressOutput": False
         }
 
@@ -541,6 +666,38 @@ class ObservabilityTracker:
             self._debug_log('TranscriptExtractionError', {'error': str(e)})
             return (None, None)
 
+    def _compute_session_metrics(self, end_time: datetime) -> Dict:
+        """Compute aggregated session metrics."""
+        start_time = self.session_metrics.get('session_start_time')
+        duration_seconds = 0
+        if start_time:
+            duration_seconds = (end_time - start_time).total_seconds()
+
+        # Active session time (first tool to last tool)
+        active_duration_seconds = 0
+        first_tool = self.session_metrics.get('first_tool_time')
+        last_tool = self.session_metrics.get('last_tool_time')
+        if first_tool and last_tool:
+            active_duration_seconds = (last_tool - first_tool).total_seconds()
+
+        tool_count = self.session_metrics['tool_count']
+
+        return {
+            'total_tools': tool_count,
+            'tool_successes': self.session_metrics['tool_successes'],
+            'tool_errors': self.session_metrics['tool_errors'],
+            'error_rate': (
+                self.session_metrics['tool_errors'] / tool_count
+                if tool_count > 0 else 0
+            ),
+            'tools_by_name': self.session_metrics['tools_by_name'],
+            'subagent_count': self.session_metrics['subagent_count'],
+            'prompt_count': self.session_metrics['prompt_count'],
+            'duration_seconds': duration_seconds,
+            'duration_minutes': round(duration_seconds / 60, 2),
+            'active_duration_seconds': active_duration_seconds,
+            'active_duration_minutes': round(active_duration_seconds / 60, 2)
+        }
 
     # ========================================
     # UTILITIES
