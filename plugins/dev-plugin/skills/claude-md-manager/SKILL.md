@@ -39,17 +39,25 @@ fi
 | File Status | Hook Context | Action |
 |-------------|--------------|--------|
 | Missing | SessionStart | **Create** from scratch |
-| Missing | Stop | **Create** + **Update** |
+| Missing | Stop | **Create** (mandatory) + **Update** (if learnings exist) |
 | Exists | SessionStart | **Validate** (quick check) |
-| Exists | Stop | **Update** with learnings |
+| Exists | Stop | **Update** (only if learnings exist) |
+
+**Important Notes**:
+- **Missing file = ALWAYS create it**, even if session is empty. Future sessions need a starting point.
+- **Updates are conditional** - only add content if valuable learnings were captured.
 
 ### Phase 2: Execute Action
 
 Based on Phase 1 decision, execute appropriate workflow.
 
+**CRITICAL RULE**: If CLAUDE.md is missing, you MUST create it - even if the session is empty. The CREATE action is mandatory when the file doesn't exist. Only the UPDATE portion is conditional on having learnings.
+
 ---
 
 ## Action 1: CREATE (When Missing)
+
+**MANDATORY**: This action is REQUIRED whenever CLAUDE.md does not exist, regardless of session content.
 
 ### Step 1: Codebase Discovery
 
@@ -209,7 +217,9 @@ Consider adding:
 
 ## Action 3: UPDATE (Stop, File Exists)
 
-Update CLAUDE.md with session learnings.
+**CONDITIONAL**: Update CLAUDE.md with session learnings ONLY if valuable learnings exist.
+
+If the session was empty (no tool calls, no transcript), skip the update gracefully. The file should remain as-is.
 
 ### Step 1: Session Analysis
 
