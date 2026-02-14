@@ -212,6 +212,40 @@ class ObservabilityTracker:
     # TOOL TRACKING
     # ========================================
 
+    def handle_pre_tool_use(self, hook_input: Dict) -> Dict:
+        """Track tool usage before execution (PreToolUse)."""
+        self._debug_log('PreToolUse', hook_input)
+
+        # Get session ID and connect
+        self.session_id = hook_input.get('session_id')
+        if not self.session_id:
+            return {"success": True, "suppressOutput": True}
+
+        self._connect_langfuse()
+        trace = self._get_trace()
+
+        # Extract tool info
+        tool_name = hook_input.get('tool_name', 'Unknown')
+        tool_input_data = hook_input.get('tool_input', {})
+
+        # Send to Langfuse immediately (no truncation)
+        if trace:
+            try:
+                trace.event(
+                    name=f"pretool_{tool_name}",
+                    start_time=datetime.now(),
+                    input=tool_input_data,
+                    metadata={
+                        'event': 'PreToolUse',
+                        'tool': tool_name
+                    }
+                )
+                self.langfuse_client.flush()
+            except Exception as e:
+                self._debug_log('PreToolEventError', {'error': str(e)})
+
+        return {"success": True, "suppressOutput": True}
+
     def handle_tool_use(self, hook_input: Dict) -> Dict:
         """Track tool usage and send to Langfuse immediately."""
         self._debug_log('PostToolUse', hook_input)
@@ -235,24 +269,14 @@ class ObservabilityTracker:
             {}
         )
 
-        # Truncate large data
-        def truncate_data(data, max_length=1000):
-            if isinstance(data, str) and len(data) > max_length:
-                return data[:max_length] + '... (truncated)'
-            elif isinstance(data, dict):
-                return {k: truncate_data(v, max_length) for k, v in list(data.items())[:10]}
-            elif isinstance(data, list) and len(data) > 10:
-                return [truncate_data(item, max_length) for item in data[:10]] + ['... (truncated)']
-            return data
-
-        # Send to Langfuse immediately
+        # Send to Langfuse immediately (no truncation)
         if trace:
             try:
                 trace.span(
                     name=f"tool_{tool_name}",
                     start_time=datetime.now(),
-                    input=truncate_data(tool_input_data),
-                    output=truncate_data(tool_result) if tool_result else None,
+                    input=tool_input_data,
+                    output=tool_result if tool_result else None,
                     metadata={
                         'success': not isinstance(tool_result, dict) or not tool_result.get('error'),
                         'tool': tool_name
@@ -312,6 +336,76 @@ class ObservabilityTracker:
     # SESSION FINALIZATION
     # ========================================
 
+    def handle_subagent_start(self, hook_input: Dict) -> Dict:
+        """Track subagent start."""
+        self._debug_log('SubagentStart', hook_input)
+
+        # Get session ID and connect
+        self.session_id = hook_input.get('session_id')
+        if not self.session_id:
+            return {"success": True, "suppressOutput": True}
+
+        self._connect_langfuse()
+        trace = self._get_trace()
+
+        # Extract subagent info
+        subagent_type = hook_input.get('subagent_type', 'Unknown')
+        subagent_id = hook_input.get('subagent_id')
+        prompt = hook_input.get('prompt', '')
+
+        # Send to Langfuse immediately
+        if trace:
+            try:
+                trace.event(
+                    name="subagent_start",
+                    start_time=datetime.now(),
+                    input=prompt[:500] if prompt else None,  # Truncate long prompts
+                    metadata={
+                        'event': 'SubagentStart',
+                        'subagent_type': subagent_type,
+                        'subagent_id': subagent_id
+                    }
+                )
+                self.langfuse_client.flush()
+            except Exception as e:
+                self._debug_log('SubagentStartError', {'error': str(e)})
+
+        return {"success": True, "suppressOutput": True}
+
+    def handle_subagent_stop(self, hook_input: Dict) -> Dict:
+        """Track subagent completion."""
+        self._debug_log('SubagentStop', hook_input)
+
+        # Get session ID and connect
+        self.session_id = hook_input.get('session_id')
+        if not self.session_id:
+            return {"success": True, "suppressOutput": True}
+
+        self._connect_langfuse()
+        trace = self._get_trace()
+
+        # Extract subagent info
+        subagent_type = hook_input.get('subagent_type', 'Unknown')
+        subagent_id = hook_input.get('subagent_id')
+
+        # Send to Langfuse immediately
+        if trace:
+            try:
+                trace.event(
+                    name="subagent_stop",
+                    start_time=datetime.now(),
+                    metadata={
+                        'event': 'SubagentStop',
+                        'subagent_type': subagent_type,
+                        'subagent_id': subagent_id
+                    }
+                )
+                self.langfuse_client.flush()
+            except Exception as e:
+                self._debug_log('SubagentStopError', {'error': str(e)})
+
+        return {"success": True, "suppressOutput": True}
+
     def handle_stop(self, hook_input: Dict) -> Dict:
         """Finalize session tracking and create GENERATION with prompt+response."""
         self._debug_log('Stop', hook_input)
@@ -357,6 +451,30 @@ class ObservabilityTracker:
             "systemMessage": "📊 Session complete",
             "suppressOutput": False
         }
+
+    def handle_session_end(self, hook_input: Dict) -> Dict:
+        """Handle session end event."""
+        self._debug_log('SessionEnd', hook_input)
+
+        # Get session ID and connect
+        self.session_id = hook_input.get('session_id')
+        if not self.session_id:
+            return {"success": True, "suppressOutput": True}
+
+        self._connect_langfuse()
+        trace = self._get_trace()
+
+        # Finalize trace
+        if trace:
+            try:
+                trace.update(
+                    output={'status': 'session_ended'}
+                )
+                self.langfuse_client.flush()
+            except Exception as e:
+                self._debug_log('SessionEndError', {'error': str(e)})
+
+        return {"success": True, "suppressOutput": True}
 
     def _extract_last_conversation(self, transcript_path: str) -> tuple:
         """Extract last user prompt and assistant response from transcript."""
@@ -523,12 +641,20 @@ def main():
 
         if hook_event == 'SessionStart':
             result = tracker.handle_session_start(hook_input)
+        elif hook_event == 'PreToolUse':
+            result = tracker.handle_pre_tool_use(hook_input)
         elif hook_event == 'PostToolUse':
             result = tracker.handle_tool_use(hook_input)
         elif hook_event == 'UserPromptSubmit':
             result = tracker.handle_prompt(hook_input)
+        elif hook_event == 'SubagentStart':
+            result = tracker.handle_subagent_start(hook_input)
+        elif hook_event == 'SubagentStop':
+            result = tracker.handle_subagent_stop(hook_input)
         elif hook_event == 'Stop':
             result = tracker.handle_stop(hook_input)
+        elif hook_event == 'SessionEnd':
+            result = tracker.handle_session_end(hook_input)
         else:
             result = {"success": True, "suppressOutput": True}
 
