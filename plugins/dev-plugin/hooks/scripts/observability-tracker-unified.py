@@ -253,33 +253,13 @@ class ObservabilityTracker:
         tool_name = hook_input.get('tool_name', 'Unknown')
         tool_input_data = hook_input.get('tool_input', {})
 
-        # Update metrics
-        self.session_metrics['tool_count'] += 1
-        self.session_metrics['tools_by_name'][tool_name] = \
-            self.session_metrics['tools_by_name'].get(tool_name, 0) + 1
-
-        if not self.session_metrics['first_tool_time']:
-            self.session_metrics['first_tool_time'] = datetime.now()
-
-        # Create and START span
+        # Create and START span with idempotent ID
         if trace:
             try:
-                # Check if span() method exists (SDK compatibility)
-                span_func = getattr(trace, 'span', None)
-                if not callable(span_func):
-                    self._debug_log('SpanNotSupported', {'fallback': 'using events'})
-                    # Fallback to old event-based approach
-                    trace.event(
-                        name=f"pretool_{tool_name}",
-                        start_time=datetime.now(),
-                        input=tool_input_data,
-                        metadata={'event': 'PreToolUse', 'tool': tool_name, 'tool_use_id': tool_use_id}
-                    )
-                    self.langfuse_client.flush()
-                    return {"success": True, "suppressOutput": True}
-
-                span = trace.span(
+                trace.span(
+                    id=tool_use_id,
                     name=f"tool_{tool_name}",
+                    start_time=datetime.now(),
                     input=tool_input_data,
                     metadata={
                         'event': 'ToolExecution',
@@ -289,10 +269,6 @@ class ObservabilityTracker:
                         'permission_mode': hook_input.get('permission_mode')
                     }
                 )
-
-                # Store for correlation in PostToolUse
-                self.active_spans[tool_use_id] = span
-
                 self.langfuse_client.flush()
                 self._debug_log('SpanStarted', {'tool_use_id': tool_use_id, 'tool': tool_name})
             except Exception as e:
@@ -315,9 +291,7 @@ class ObservabilityTracker:
             return {"success": True, "suppressOutput": True}
 
         self._connect_langfuse()
-
-        # Retrieve the span started in PreToolUse
-        span = self.active_spans.get(tool_use_id)
+        trace = self._get_trace()
 
         # Extract tool info
         tool_name = hook_input.get('tool_name', 'Unknown')
@@ -331,17 +305,14 @@ class ObservabilityTracker:
 
         # Determine success/failure
         is_error = isinstance(tool_result, dict) and tool_result.get('error')
-        if is_error:
-            self.session_metrics['tool_errors'] += 1
-        else:
-            self.session_metrics['tool_successes'] += 1
 
-        self.session_metrics['last_tool_time'] = datetime.now()
-
-        # Update and END the span
-        if span:
+        # Update and END the span using the same ID
+        if trace:
             try:
-                span.end(
+                trace.span(
+                    id=tool_use_id,
+                    name=f"tool_{tool_name}",
+                    end_time=datetime.now(),
                     output=tool_result if tool_result else None,
                     metadata={
                         'success': not is_error,
@@ -350,21 +321,10 @@ class ObservabilityTracker:
                     level='ERROR' if is_error else 'DEFAULT',
                     status_message=str(tool_result.get('error')) if is_error else None
                 )
-
-                # Remove from active spans
-                del self.active_spans[tool_use_id]
-
                 self.langfuse_client.flush()
                 self._debug_log('SpanEnded', {'tool_use_id': tool_use_id, 'tool': tool_name, 'success': not is_error})
             except Exception as e:
                 self._debug_log('PostToolSpanError', {'error': str(e)})
-        else:
-            # Span not found - possibly missed PreToolUse or orphaned PostToolUse
-            self._debug_log('OrphanedPostToolUse', {
-                'tool_use_id': tool_use_id,
-                'tool_name': tool_name,
-                'warning': 'No matching PreToolUse span found'
-            })
 
         return {"success": True, "suppressOutput": True}
 
@@ -507,7 +467,7 @@ class ObservabilityTracker:
         return {"success": True, "suppressOutput": True}
 
     def handle_stop(self, hook_input: Dict) -> Dict:
-        """Finalize session tracking with aggregated metrics and cleanup."""
+        """Finalize session tracking with aggregated metrics reconstructed from logs."""
         self._debug_log('Stop', hook_input)
 
         self.session_id = hook_input.get('session_id')
@@ -517,25 +477,8 @@ class ObservabilityTracker:
         self._connect_langfuse()
         trace = self._get_trace()
 
-        # Clean up any orphaned spans
-        if self.active_spans:
-            self._debug_log('OrphanedSpans', {
-                'count': len(self.active_spans),
-                'tool_use_ids': list(self.active_spans.keys())
-            })
-            for tool_use_id, span in list(self.active_spans.items()):
-                try:
-                    span.end(
-                        status_message='Orphaned span - no PostToolUse received',
-                        level='WARNING'
-                    )
-                    del self.active_spans[tool_use_id]
-                except Exception:
-                    pass
-
-        # Calculate session metrics
-        session_end_time = datetime.now()
-        session_metrics = self._compute_session_metrics(session_end_time)
+        # Calculate session metrics by reading the logs (since we are stateless)
+        session_metrics = self._compute_session_metrics_from_logs()
 
         if trace:
             try:
@@ -568,11 +511,15 @@ class ObservabilityTracker:
                 self._debug_log('TraceFinalizeError', {'error': str(e)})
 
         # Format message with key metrics
-        message = f"📊 Session complete - {session_metrics['total_tools']} tools"
-        if session_metrics['duration_minutes'] > 0:
-            message += f", {session_metrics['duration_minutes']:.1f}min"
-        if session_metrics['tool_errors'] > 0:
-            message += f", {session_metrics['tool_errors']} errors"
+        tool_count = session_metrics.get('total_tools', 0)
+        message = f"📊 Session complete - {tool_count} tools"
+        duration = session_metrics.get('duration_minutes', 0)
+        if duration > 0:
+            message += f", {duration:.1f}min"
+        
+        errors = session_metrics.get('tool_errors', 0)
+        if errors > 0:
+            message += f", {errors} errors"
 
         return {
             "systemMessage": message,
@@ -666,38 +613,76 @@ class ObservabilityTracker:
             self._debug_log('TranscriptExtractionError', {'error': str(e)})
             return (None, None)
 
-    def _compute_session_metrics(self, end_time: datetime) -> Dict:
-        """Compute aggregated session metrics."""
-        start_time = self.session_metrics.get('session_start_time')
-        duration_seconds = 0
-        if start_time:
-            duration_seconds = (end_time - start_time).total_seconds()
+    def _compute_session_metrics_from_logs(self) -> Dict:
+        """Compute aggregated session metrics by reading the local raw-events log file."""
+        try:
+            raw_log_file = self.project_dir / '.claude' / 'observability' / 'raw-events' / f"events-{datetime.now().strftime('%Y%m%d')}.jsonl"
+            if not raw_log_file.exists():
+                return {}
 
-        # Active session time (first tool to last tool)
-        active_duration_seconds = 0
-        first_tool = self.session_metrics.get('first_tool_time')
-        last_tool = self.session_metrics.get('last_tool_time')
-        if first_tool and last_tool:
-            active_duration_seconds = (last_tool - first_tool).total_seconds()
+            metrics = {
+                'total_tools': 0,
+                'tool_successes': 0,
+                'tool_errors': 0,
+                'tools_by_name': {},
+                'subagent_count': 0,
+                'prompt_count': 0,
+                'start_time': None,
+                'end_time': None
+            }
 
-        tool_count = self.session_metrics['tool_count']
+            with raw_log_file.open('r') as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line)
+                        event = entry.get('event')
+                        data = entry.get('data', {})
+                        
+                        # Filter by current session_id
+                        if data.get('session_id') != self.session_id:
+                            continue
+                            
+                        ts_str = entry.get('timestamp')
+                        if ts_str:
+                            ts = datetime.fromisoformat(ts_str)
+                            if not metrics['start_time'] or ts < metrics['start_time']:
+                                metrics['start_time'] = ts
+                            if not metrics['end_time'] or ts > metrics['end_time']:
+                                metrics['end_time'] = ts
 
-        return {
-            'total_tools': tool_count,
-            'tool_successes': self.session_metrics['tool_successes'],
-            'tool_errors': self.session_metrics['tool_errors'],
-            'error_rate': (
-                self.session_metrics['tool_errors'] / tool_count
-                if tool_count > 0 else 0
-            ),
-            'tools_by_name': self.session_metrics['tools_by_name'],
-            'subagent_count': self.session_metrics['subagent_count'],
-            'prompt_count': self.session_metrics['prompt_count'],
-            'duration_seconds': duration_seconds,
-            'duration_minutes': round(duration_seconds / 60, 2),
-            'active_duration_seconds': active_duration_seconds,
-            'active_duration_minutes': round(active_duration_seconds / 60, 2)
-        }
+                        if event == 'PreToolUse':
+                            metrics['total_tools'] += 1
+                            tool = data.get('tool_name', 'unknown')
+                            metrics['tools_by_name'][tool] = metrics['tools_by_name'].get(tool, 0) + 1
+                        elif event == 'PostToolUse':
+                            res = (
+                                data.get('tool_response') or 
+                                data.get('tool_result') or 
+                                data.get('result') or 
+                                data.get('output') or 
+                                {}
+                            )
+                            if isinstance(res, dict) and res.get('error'):
+                                metrics['tool_errors'] += 1
+                            else:
+                                metrics['tool_successes'] += 1
+                        elif event == 'UserPromptSubmit':
+                            metrics['prompt_count'] += 1
+                        elif event == 'SubagentStart':
+                            metrics['subagent_count'] += 1
+                    except Exception:
+                        continue
+            
+            # Finalize durations
+            if metrics['start_time'] and metrics['end_time']:
+                duration_seconds = (metrics['end_time'] - metrics['start_time']).total_seconds()
+                metrics['duration_seconds'] = duration_seconds
+                metrics['duration_minutes'] = round(duration_seconds / 60, 2)
+            
+            return metrics
+        except Exception as e:
+            self._debug_log('MetricsAggregationError', {'error': str(e)})
+            return {}
 
     # ========================================
     # UTILITIES
