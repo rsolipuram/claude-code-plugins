@@ -21,11 +21,49 @@ autoformat:
 git_checkpoint:
   enabled: true
 
-# Completion notifications (NEW)
+# Audio notifications (NEW - ENHANCED!)
 notifications:
   enabled: true
-  mac_notification: true
-  tts: true
+
+  # Audio mode selection
+  # - 'mixed': Sound effect + voice (recommended for fun!)
+  # - 'tts_only': Voice announcements only
+  # - 'sound_only': Sound effects only
+  # - 'creative': Random fun sounds from library
+  audio:
+    mode: 'mixed'
+    sound_library: '~/.claude/audio'  # Path to sound effects library
+
+  # Approval Needed Notifications (when Claude needs your attention)
+  # Hook: Notification
+  approval:
+    enabled: true
+    sound: true          # Play attention-grabbing sound
+    tts: true            # Speak "Approval needed, come back"
+    voice: 'Trinoids'    # Voice profile (Trinoids, Bells, Wobble, Superstar)
+    rate: 140            # Speech rate (words per minute)
+
+  # Session Completion Notifications (when session ends)
+  # Hook: Stop
+  completion:
+    enabled: true
+    sound: true          # Play success/error sound
+    tts: true            # Speak session summary
+    contextual_voice: true  # Auto-select voice based on outcome
+
+    # Optional: Override specific voices
+    # (only used if contextual_voice is false)
+    voices:
+      success: 'Good News'   # Files modified successfully
+      error: 'Bad News'      # Errors detected
+      warning: 'Whisper'     # Warnings present
+      neutral: 'Bubbles'     # No changes
+
+  # TTS Global Settings
+  tts:
+    enabled: true
+    timeout: 30           # Max TTS duration (seconds)
+    rate_adjustment: 0    # +/- WPM modifier for all voices
 
 # Observability tracking (NEW)
 observability:
@@ -98,23 +136,118 @@ This file configures all intelligent development automation features:
   - Skips silently if not a git repository
   - Blocks if merge conflicts detected
 
-### Completion Notifications (NEW)
+### Audio Notifications (NEW - ENHANCED!)
 
 #### notifications.enabled
 - **Type**: boolean
 - **Default**: `true`
-- **Description**: Master switch for all completion notifications
+- **Description**: Master switch for all notifications (audio and completion)
 
-#### notifications.mac_notification
+#### notifications.audio.mode
+- **Type**: string (enum)
+- **Default**: `'mixed'`
+- **Options**: `'tts_only'`, `'sound_only'`, `'mixed'`, `'creative'`
+- **Description**: Audio notification mode
+  - `'tts_only'`: Voice announcements only
+  - `'sound_only'`: Sound effects only
+  - `'mixed'`: Sound effect first, then voice (recommended)
+  - `'creative'`: Random fun sounds from library
+
+#### notifications.audio.sound_library
+- **Type**: string (path)
+- **Default**: `'~/.claude/audio'`
+- **Description**: Path to custom sound effects library
+- **Structure**:
+  ```
+  ~/.claude/audio/
+    success/   # Sounds for successful completions
+    error/     # Sounds for errors/failures
+    waiting/   # Sounds for processing/waiting
+    notify/    # Sounds for notifications/alerts
+  ```
+- **Formats**: MP3, WAV, AIFF, M4A
+
+#### notifications.approval.enabled
 - **Type**: boolean
 - **Default**: `true`
-- **Description**: Send Mac notification center alerts on completion
+- **Description**: Enable "Come back!" notifications when approval is needed
+- **Hook**: Notification hook
 
-#### notifications.tts
+#### notifications.approval.sound
 - **Type**: boolean
 - **Default**: `true`
-- **Description**: Text-to-speech announcements on completion
-- **Voice**: Uses default macOS voice (Samantha)
+- **Description**: Play attention-grabbing sound effect
+
+#### notifications.approval.tts
+- **Type**: boolean
+- **Default**: `true`
+- **Description**: Speak "Approval needed, come back" message
+
+#### notifications.approval.voice
+- **Type**: string
+- **Default**: `'Trinoids'`
+- **Options**: Any macOS voice (Trinoids, Bells, Wobble, Superstar, etc.)
+- **Description**: TTS voice for approval notifications
+- **Test**: `say -v "Trinoids" "Approval needed, come back"`
+
+#### notifications.approval.rate
+- **Type**: integer
+- **Default**: `140`
+- **Description**: Speech rate in words per minute (50-300+)
+
+#### notifications.completion.enabled
+- **Type**: boolean
+- **Default**: `true`
+- **Description**: Enable session completion notifications
+- **Hook**: Stop hook
+
+#### notifications.completion.sound
+- **Type**: boolean
+- **Default**: `true`
+- **Description**: Play success/error sound effect
+
+#### notifications.completion.tts
+- **Type**: boolean
+- **Default**: `true`
+- **Description**: Speak session summary
+
+#### notifications.completion.contextual_voice
+- **Type**: boolean
+- **Default**: `true`
+- **Description**: Auto-select voice based on session outcome
+  - Success → "Good News" (upbeat)
+  - Errors → "Bad News" (somber)
+  - Warnings → "Whisper" (cautious)
+  - No changes → "Bubbles" (neutral)
+
+#### notifications.completion.voices
+- **Type**: object
+- **Description**: Override default voices when `contextual_voice` is false
+- **Keys**: `success`, `error`, `warning`, `neutral`
+- **Example**:
+  ```yaml
+  voices:
+    success: 'Good News'
+    error: 'Bad News'
+    warning: 'Whisper'
+    neutral: 'Bubbles'
+  ```
+
+#### notifications.tts.enabled
+- **Type**: boolean
+- **Default**: `true`
+- **Description**: Global TTS enable/disable
+
+#### notifications.tts.timeout
+- **Type**: integer
+- **Default**: `30`
+- **Description**: Maximum TTS duration in seconds
+
+#### notifications.tts.rate_adjustment
+- **Type**: integer
+- **Default**: `0`
+- **Description**: +/- WPM modifier applied to all voices
+- **Example**: `10` makes all voices 10 WPM faster
 
 ### Observability Tracking (NEW)
 
@@ -274,14 +407,88 @@ notifications:
 ---
 ```
 
-### Mac Notification Only (No TTS)
+### Audio: Sound Effects Only (Minimalist)
 
 ```yaml
 ---
 notifications:
-  enabled: true
-  mac_notification: true
-  tts: false
+  audio:
+    mode: 'sound_only'
+  approval:
+    sound: true
+    tts: false
+  completion:
+    sound: true
+    tts: false
+---
+```
+
+### Audio: TTS Only (Voice-First)
+
+```yaml
+---
+notifications:
+  audio:
+    mode: 'tts_only'
+  approval:
+    sound: false
+    tts: true
+    voice: 'Trinoids'
+  completion:
+    sound: false
+    tts: true
+    contextual_voice: true
+---
+```
+
+### Audio: Mixed Mode (Recommended!)
+
+```yaml
+---
+notifications:
+  audio:
+    mode: 'mixed'
+    sound_library: '~/.claude/audio'
+  approval:
+    sound: true
+    tts: true
+    voice: 'Trinoids'
+  completion:
+    sound: true
+    tts: true
+    contextual_voice: true
+---
+```
+
+### Audio: Creative Random Sounds
+
+```yaml
+---
+notifications:
+  audio:
+    mode: 'creative'
+    sound_library: '~/.claude/audio-retro'  # Custom retro gaming pack
+  approval:
+    sound: true
+    tts: false
+  completion:
+    sound: true
+    tts: false
+---
+```
+
+### Audio: Custom Voice Overrides
+
+```yaml
+---
+notifications:
+  completion:
+    contextual_voice: false  # Use explicit voices instead
+    voices:
+      success: 'Jester'      # Fun voice for success
+      error: 'Superstar'     # Dramatic voice for errors
+      warning: 'Wobble'      # Unstable voice for warnings
+      neutral: 'Bells'       # Musical voice for no changes
 ---
 ```
 
@@ -385,6 +592,96 @@ claude_md_management:
   update_threshold: 3
 ---
 ```
+
+## Sound Library Setup
+
+### Quick Start
+
+1. **Create sound library:**
+   ```bash
+   mkdir -p ~/.claude/audio/{success,error,waiting,notify}
+   ```
+
+2. **Add custom sounds (optional):**
+   ```bash
+   # Example: Add game sounds
+   cp ~/Downloads/mario-coin.mp3 ~/.claude/audio/success/
+   cp ~/Downloads/mario-jump.wav ~/.claude/audio/notify/
+   cp ~/Downloads/game-over.mp3 ~/.claude/audio/error/
+   ```
+
+3. **Test sounds:**
+   ```bash
+   afplay ~/.claude/audio/success/mario-coin.mp3
+   ```
+
+4. **Enable in config:**
+   ```yaml
+   notifications:
+     audio:
+       mode: 'mixed'  # or 'sound_only', 'creative'
+       sound_library: '~/.claude/audio'
+   ```
+
+### Available TTS Voices
+
+macOS provides 150+ voices. Key voices used by the plugin:
+
+| Voice | Character | Use Case |
+|-------|-----------|----------|
+| **Good News** | Upbeat, triumphant | Success notifications |
+| **Bad News** | Somber, serious | Error notifications |
+| **Bubbles** | Cheerful, friendly | General completion |
+| **Trinoids** | Alien, attention-grabbing | "Come back!" alerts |
+| **Bells** | Musical, clear | Approval needed |
+| **Whisper** | Quiet, cautious | Warnings |
+| **Wobble** | Wavering | Processing/waiting |
+| **Zarvox** | Electronic, robotic | Technical/code quality |
+| **Superstar** | Dramatic, urgent | Critical alerts |
+| **Jester** | Playful | Fun messages |
+
+**Test voices:** `say -v "Good News" "Test message"`
+**List all voices:** `say -v '?'`
+
+### Fallback Behavior
+
+If no custom sounds exist, the plugin uses macOS system sounds:
+- **success** → Hero.aiff (triumphant)
+- **error** → Basso.aiff (warning tone)
+- **waiting** → Tink.aiff (gentle tick)
+- **notify** → Glass.aiff (clear ping)
+
+Located in: `/System/Library/Sounds/`
+
+### Sound Packs (Advanced)
+
+Create themed sound packs for extra fun:
+
+#### Retro Gaming Pack 🎮
+```bash
+mkdir -p ~/.claude/audio-retro/{success,error,notify}
+# Add Mario, Zelda, Pac-Man sounds
+```
+
+#### Sci-Fi Pack 🚀
+```bash
+mkdir -p ~/.claude/audio-scifi/{success,error,notify}
+# Add Star Trek, Star Wars sounds
+```
+
+#### Nature Sounds 🌿
+```bash
+mkdir -p ~/.claude/audio-nature/{success,error,notify}
+# Add bird chirps, wind chimes, etc.
+```
+
+**Switch packs in config:**
+```yaml
+audio:
+  sound_library: '~/.claude/audio-retro'
+```
+
+For more details, see: `~/.claude/audio/README.md`
 
 ## Automatic Detection
 
