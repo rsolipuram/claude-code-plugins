@@ -12,7 +12,8 @@ Sends events to Langfuse immediately as they happen.
 Features:
 - Auto-setup Langfuse environment (async)
 - Real-time event tracking to Langfuse
-- Optional debug logging
+- Stateful reconstruction from local logs
+- Duration-aware spans and generations
 """
 
 import json
@@ -23,7 +24,7 @@ import urllib.request
 import urllib.error
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 import hashlib
 
 
@@ -39,25 +40,8 @@ class ObservabilityTracker:
         self.session_id = None
         self.debug_mode = self.obs_config.get('debug', False)
 
-        # NEW: State tracking for in-flight operations
-        self.active_spans = {}  # tool_use_id -> span object
-        self.subagent_traces = {}  # agent_id -> trace object
-
-        # NEW: Session metrics aggregation
-        self.session_metrics = {
-            'tool_count': 0,
-            'tool_errors': 0,
-            'tool_successes': 0,
-            'tools_by_name': {},
-            'subagent_count': 0,
-            'prompt_count': 0,
-            'session_start_time': None,
-            'first_tool_time': None,
-            'last_tool_time': None
-        }
-
     # ========================================
-    # SESSION START: Quick Check + Async Setup
+    # SESSION START
     # ========================================
 
     def handle_session_start(self, hook_input: Dict) -> Dict:
@@ -67,9 +51,6 @@ class ObservabilityTracker:
         # Get session ID
         self.session_id = hook_input.get('session_id', self._generate_session_id())
 
-        # Initialize session start time
-        self.session_metrics['session_start_time'] = datetime.now()
-
         # Quick Langfuse health check
         if self.langfuse_config.get('enabled', False):
             if self._is_langfuse_healthy():
@@ -78,7 +59,6 @@ class ObservabilityTracker:
                     # Create trace immediately
                     trace = self._get_trace()
                     if trace:
-                        # Ensure data is flushed
                         self.langfuse_client.flush()
                         return {
                             "systemMessage": f"📊 Session tracking: {self.session_id[:8]} (Langfuse ready)",
@@ -89,14 +69,7 @@ class ObservabilityTracker:
                 if self.langfuse_config.get('auto_setup', False):
                     self._spawn_async_setup()
                     return {
-                        "systemMessage": f"📊 Session tracking: {self.session_id[:8]} (Langfuse setup running in background)",
-                        "suppressOutput": False
-                    }
-                elif self.langfuse_config.get('auto_start', False):
-                    # Just try to start if already installed
-                    self._try_start_langfuse()
-                    return {
-                        "systemMessage": f"📊 Session tracking: {self.session_id[:8]} (Langfuse starting)",
+                        "systemMessage": f"📊 Session tracking: {self.session_id[:8]} (Langfuse setup running)",
                         "suppressOutput": False
                     }
 
@@ -105,172 +78,35 @@ class ObservabilityTracker:
             "suppressOutput": False
         }
 
-    def _is_langfuse_healthy(self) -> bool:
-        """Quick health check for Langfuse (<2s)."""
-        try:
-            host = self.langfuse_config.get('host', 'http://localhost:3000')
-            health_url = f"{host}/api/public/health"
-            req = urllib.request.Request(health_url, method='GET')
-            with urllib.request.urlopen(req, timeout=2) as response:
-                return response.status == 200
-        except (urllib.error.URLError, urllib.error.HTTPError, Exception):
-            return False
-
-    def _connect_langfuse(self) -> None:
-        """Connect to Langfuse (sets up client for later use)."""
-        if self.langfuse_client:
-            return
-
-        try:
-            import langfuse
-            
-            # Extract keys
-            pk = self.langfuse_config.get('public_key') or os.environ.get('LANGFUSE_PUBLIC_KEY')
-            sk = self.langfuse_config.get('secret_key') or os.environ.get('LANGFUSE_SECRET_KEY')
-            host = self.langfuse_config.get('host') or os.environ.get('LANGFUSE_HOST', 'http://localhost:3000')
-
-            if not pk or not sk:
-                self._debug_log('ConnectSkip', {'reason': 'Missing keys'})
-                return
-
-            # Initialize client explicitly
-            self.langfuse_client = langfuse.Langfuse(
-                public_key=pk,
-                secret_key=sk,
-                host=host
-            )
-                
-        except ImportError as e:
-            self._debug_log('ConnectError', {'error': f'langfuse module not found: {str(e)}'})
-            self.langfuse_client = None
-        except Exception as e:
-            self._debug_log('ConnectError', {'error': str(e)})
-            self.langfuse_client = None
-
-    def _get_trace(self):
-        """Get or create trace for current session."""
-        if not self.langfuse_client or not self.session_id:
-            return None
-
-        try:
-            # Check for trace method
-            trace_func = getattr(self.langfuse_client, 'trace', None)
-            if callable(trace_func):
-                return trace_func(
-                    id=self.session_id,
-                    name="claude-code-session",
-                    user_id=self.langfuse_config.get('userId'),
-                    session_id=self.session_id,
-                    version=self.langfuse_config.get('version'),
-                    tags=self.langfuse_config.get('tags'),
-                    metadata={
-                        'project': self.project_dir.name,
-                        'project_dir': str(self.project_dir)
-                    }
-                )
-            
-            # Fallback
-            self._debug_log('TraceFallback', {'reason': 'trace() method not found or not callable'})
-            return None
-            
-        except Exception as e:
-            self._debug_log('TraceGetError', {'error': str(e)})
-            return None
-
-    def _spawn_async_setup(self) -> None:
-        """Spawn background Langfuse setup process (non-blocking)."""
-        setup_script = Path(__file__).parent / 'langfuse-setup.py'
-        if setup_script.exists():
-            subprocess.Popen(
-                ['uv', 'run', '--quiet', str(setup_script)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                cwd=self.project_dir
-            )
-
-    def _try_start_langfuse(self) -> bool:
-        """Try to start Langfuse if installed (quick attempt)."""
-        compose_path = self._find_compose_file()
-        if compose_path:
-            try:
-                subprocess.Popen(
-                    ['docker-compose', 'up', '-d'],
-                    cwd=compose_path.parent,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-                return True
-            except Exception:
-                return False
-        return False
-
-    def _find_compose_file(self) -> Optional[Path]:
-        """Find docker-compose file for Langfuse."""
-        # Check config first
-        compose_path = self.langfuse_config.get('compose_path')
-        if compose_path:
-            path = Path(compose_path).expanduser()
-            if path.exists():
-                return path
-
-        # Search common locations
-        search_paths = [
-            self.project_dir / 'langfuse' / 'docker-compose.yml',
-            Path.home() / 'langfuse-docker' / 'docker-compose.yml',
-            Path.home() / '.langfuse' / 'docker-compose.yml',
-        ]
-
-        for path in search_paths:
-            if path.exists():
-                content = path.read_text()
-                if 'langfuse' in content.lower():
-                    return path
-
-        return None
-
     # ========================================
     # TOOL TRACKING
     # ========================================
 
     def handle_pre_tool_use(self, hook_input: Dict) -> Dict:
         """Start a span for tool execution (PreToolUse)."""
-        self._debug_log('PreToolUse', hook_input)
-
         self.session_id = hook_input.get('session_id')
-        if not self.session_id:
-            return {"success": True, "suppressOutput": True}
-
-        # Extract correlation ID
         tool_use_id = hook_input.get('tool_use_id')
-        if not tool_use_id:
-            self._debug_log('PreToolUseMissingID', {'warning': 'No tool_use_id'})
+        if not self.session_id or not tool_use_id:
             return {"success": True, "suppressOutput": True}
 
         self._connect_langfuse()
         trace = self._get_trace()
 
-        # Extract tool info
-        tool_name = hook_input.get('tool_name', 'Unknown')
-        tool_input_data = hook_input.get('tool_input', {})
-
-        # Create and START span with idempotent ID
         if trace:
             try:
+                tool_name = hook_input.get('tool_name', 'Unknown')
                 trace.span(
                     id=tool_use_id,
                     name=f"tool_{tool_name}",
                     start_time=datetime.now(),
-                    input=tool_input_data,
+                    input=hook_input.get('tool_input', {}),
                     metadata={
-                        'event': 'ToolExecution',
                         'tool': tool_name,
                         'tool_use_id': tool_use_id,
-                        'cwd': hook_input.get('cwd'),
-                        'permission_mode': hook_input.get('permission_mode')
+                        'cwd': hook_input.get('cwd')
                     }
                 )
                 self.langfuse_client.flush()
-                self._debug_log('SpanStarted', {'tool_use_id': tool_use_id, 'tool': tool_name})
             except Exception as e:
                 self._debug_log('PreToolSpanError', {'error': str(e)})
 
@@ -278,100 +114,112 @@ class ObservabilityTracker:
 
     def handle_tool_use(self, hook_input: Dict) -> Dict:
         """Complete the span started in PreToolUse (PostToolUse)."""
-        self._debug_log('PostToolUse', hook_input)
-
         self.session_id = hook_input.get('session_id')
-        if not self.session_id:
-            return {"success": True, "suppressOutput": True}
-
-        # Extract correlation ID
         tool_use_id = hook_input.get('tool_use_id')
-        if not tool_use_id:
-            self._debug_log('PostToolUseMissingID', {'warning': 'No tool_use_id'})
+        if not self.session_id or not tool_use_id:
             return {"success": True, "suppressOutput": True}
 
         self._connect_langfuse()
         trace = self._get_trace()
 
-        # Extract tool info
-        tool_name = hook_input.get('tool_name', 'Unknown')
-        tool_result = (
-            hook_input.get('tool_response') or
-            hook_input.get('tool_result') or
-            hook_input.get('result') or
-            hook_input.get('output') or
-            {}
-        )
-
-        # Determine success/failure
-        is_error = isinstance(tool_result, dict) and tool_result.get('error')
-
-        # Update and END the span using the same ID
         if trace:
             try:
+                # Reconstruct start_time from logs to ensure non-zero duration
+                start_time, _ = self._find_event_info('PreToolUse', tool_use_id)
+                
+                tool_name = hook_input.get('tool_name', 'Unknown')
+                tool_result = (
+                    hook_input.get('tool_response') or
+                    hook_input.get('tool_result') or
+                    hook_input.get('output') or {}
+                )
+                is_error = isinstance(tool_result, dict) and tool_result.get('error')
+
                 trace.span(
                     id=tool_use_id,
                     name=f"tool_{tool_name}",
+                    start_time=start_time, # Historically accurate
                     end_time=datetime.now(),
-                    output=tool_result if tool_result else None,
-                    metadata={
-                        'success': not is_error,
-                        'tool': tool_name
-                    },
+                    output=tool_result,
                     level='ERROR' if is_error else 'DEFAULT',
                     status_message=str(tool_result.get('error')) if is_error else None
                 )
                 self.langfuse_client.flush()
-                self._debug_log('SpanEnded', {'tool_use_id': tool_use_id, 'tool': tool_name, 'success': not is_error})
             except Exception as e:
                 self._debug_log('PostToolSpanError', {'error': str(e)})
 
         return {"success": True, "suppressOutput": True}
 
     # ========================================
-    # PROMPT TRACKING
+    # PROMPT & SUBAGENT TRACKING
     # ========================================
 
     def handle_prompt(self, hook_input: Dict) -> Dict:
-        """Track user prompt submission and send to Langfuse immediately."""
-        self._debug_log('UserPromptSubmit', hook_input)
-
-        # Get session ID and connect
+        """Track user prompt submission."""
         self.session_id = hook_input.get('session_id')
         if not self.session_id:
             return {"success": True, "suppressOutput": True}
 
-        # Update metrics
-        self.session_metrics['prompt_count'] += 1
-
         self._connect_langfuse()
         trace = self._get_trace()
 
-        # Extract prompt content
-        prompt_content = (
-            hook_input.get('user_message') or
-            hook_input.get('prompt') or
-            hook_input.get('content') or
-            hook_input.get('message') or
-            hook_input.get('text') or
-            ''
-        )
-
-        # Send to Langfuse immediately
         if trace:
             try:
+                content = hook_input.get('prompt', hook_input.get('user_message', ''))
                 trace.event(
                     name="user_prompt_submit",
-                    start_time=datetime.now(),
-                    input=prompt_content,
-                    metadata={
-                        'event': 'UserPromptSubmit',
-                        'prompt_length': len(prompt_content)
-                    }
+                    input=content,
+                    metadata={'prompt_length': len(content)}
                 )
                 self.langfuse_client.flush()
             except Exception as e:
-                self._debug_log('EventCreationError', {'error': str(e)})
+                self._debug_log('PromptEventError', {'error': str(e)})
+
+        return {"success": True, "suppressOutput": True}
+
+    def handle_subagent_start(self, hook_input: Dict) -> Dict:
+        """Create a child trace for subagent execution."""
+        self.session_id = hook_input.get('session_id')
+        agent_id = hook_input.get('agent_id')
+        if not self.session_id or not agent_id:
+            return {"success": True, "suppressOutput": True}
+
+        self._connect_langfuse()
+        if self.langfuse_client:
+            try:
+                agent_type = hook_input.get('agent_type', 'Unknown')
+                self.langfuse_client.trace(
+                    id=agent_id,
+                    name=f"subagent_{agent_type}",
+                    session_id=self.session_id,
+                    input=hook_input.get('prompt', ''),
+                    metadata={'agent_id': agent_id, 'agent_type': agent_type}
+                )
+                self.langfuse_client.flush()
+            except Exception as e:
+                self._debug_log('SubagentStartError', {'error': str(e)})
+
+        return {"success": True, "suppressOutput": True}
+
+    def handle_subagent_stop(self, hook_input: Dict) -> Dict:
+        """Complete the subagent trace."""
+        agent_id = hook_input.get('agent_id')
+        if not agent_id:
+            return {"success": True, "suppressOutput": True}
+
+        self._connect_langfuse()
+        if self.langfuse_client:
+            try:
+                start_time, _ = self._find_event_info('SubagentStart', agent_id)
+                self.langfuse_client.trace(
+                    id=agent_id,
+                    start_time=start_time,
+                    output={'status': 'completed'},
+                    metadata={'transcript': hook_input.get('agent_transcript_path')}
+                )
+                self.langfuse_client.flush()
+            except Exception as e:
+                self._debug_log('SubagentStopError', {'error': str(e)})
 
         return {"success": True, "suppressOutput": True}
 
@@ -379,97 +227,8 @@ class ObservabilityTracker:
     # SESSION FINALIZATION
     # ========================================
 
-    def handle_subagent_start(self, hook_input: Dict) -> Dict:
-        """Create a new child trace for subagent execution."""
-        self._debug_log('SubagentStart', hook_input)
-
-        self.session_id = hook_input.get('session_id')
-        if not self.session_id:
-            return {"success": True, "suppressOutput": True}
-
-        self._connect_langfuse()
-        parent_trace = self._get_trace()
-
-        # Extract agent info
-        agent_type = hook_input.get('agent_type', 'Unknown')
-        agent_id = hook_input.get('agent_id')
-        prompt = hook_input.get('prompt', '')
-
-        self.session_metrics['subagent_count'] += 1
-
-        # Create a NEW trace for the subagent, linked to parent
-        if parent_trace and agent_id and self.langfuse_client:
-            try:
-                # Create child trace
-                subagent_trace = self.langfuse_client.trace(
-                    id=agent_id,
-                    name=f"subagent_{agent_type}",
-                    session_id=self.session_id,
-                    metadata={
-                        'event': 'SubagentExecution',
-                        'agent_type': agent_type,
-                        'agent_id': agent_id,
-                        'parent_session_id': self.session_id,
-                        'parent_trace_id': parent_trace.id if hasattr(parent_trace, 'id') else None
-                    },
-                    input=prompt
-                )
-
-                # Store for SubagentStop
-                self.subagent_traces[agent_id] = subagent_trace
-
-                self.langfuse_client.flush()
-                self._debug_log('SubagentTraceCreated', {'agent_id': agent_id, 'agent_type': agent_type})
-            except Exception as e:
-                self._debug_log('SubagentStartError', {'error': str(e)})
-
-        return {"success": True, "suppressOutput": True}
-
-    def handle_subagent_stop(self, hook_input: Dict) -> Dict:
-        """Complete the subagent trace started in SubagentStart."""
-        self._debug_log('SubagentStop', hook_input)
-
-        self.session_id = hook_input.get('session_id')
-        if not self.session_id:
-            return {"success": True, "suppressOutput": True}
-
-        self._connect_langfuse()
-
-        # Extract agent info
-        agent_id = hook_input.get('agent_id')
-        agent_transcript = hook_input.get('agent_transcript_path')
-
-        # Retrieve the subagent trace
-        subagent_trace = self.subagent_traces.get(agent_id)
-
-        if subagent_trace:
-            try:
-                subagent_trace.update(
-                    output={'status': 'completed'},
-                    metadata={
-                        'agent_transcript_path': agent_transcript
-                    }
-                )
-
-                # Remove from active subagent traces
-                del self.subagent_traces[agent_id]
-
-                self.langfuse_client.flush()
-                self._debug_log('SubagentTraceCompleted', {'agent_id': agent_id})
-            except Exception as e:
-                self._debug_log('SubagentStopError', {'error': str(e)})
-        else:
-            self._debug_log('OrphanedSubagentStop', {
-                'agent_id': agent_id,
-                'warning': 'No matching SubagentStart trace found'
-            })
-
-        return {"success": True, "suppressOutput": True}
-
     def handle_stop(self, hook_input: Dict) -> Dict:
-        """Finalize session tracking with aggregated metrics reconstructed from logs."""
-        self._debug_log('Stop', hook_input)
-
+        """Finalize turn with a full-duration Generation."""
         self.session_id = hook_input.get('session_id')
         if not self.session_id:
             return {"success": True, "suppressOutput": True}
@@ -477,357 +236,257 @@ class ObservabilityTracker:
         self._connect_langfuse()
         trace = self._get_trace()
 
-        # Calculate session metrics by reading the logs (since we are stateless)
-        session_metrics = self._compute_session_metrics_from_logs()
-
         if trace:
             try:
-                # Extract conversation from transcript
+                # Find when the user first prompted in this turn
+                prompt_time, prompt_text = self._find_event_info('UserPromptSubmit')
+                
                 transcript_path = hook_input.get('transcript_path')
                 if transcript_path and Path(transcript_path).exists():
-                    user_prompt, assistant_response = self._extract_last_conversation(transcript_path)
+                    _, assistant_response = self._extract_last_conversation(transcript_path)
 
-                    if user_prompt and assistant_response:
+                    if assistant_response:
+                        # Generation should span from prompt until now
                         trace.generation(
                             name="assistant_response",
-                            start_time=datetime.now(),
-                            input=user_prompt,
-                            output=assistant_response,
-                            metadata={'event': 'Stop', 'type': 'conversation_turn'}
+                            start_time=prompt_time or datetime.now(),
+                            end_time=datetime.now(),
+                            input=prompt_text or "See transcript",
+                            output=assistant_response
                         )
 
-                # Update trace with final metrics
+                # Aggregate metrics for the final summary
+                metrics = self._compute_session_metrics_from_logs()
                 trace.update(
-                    output={
-                        'status': 'completed',
-                        'metrics': session_metrics
-                    },
-                    metadata={
-                        'session_metrics': session_metrics
-                    }
+                    output={'metrics': metrics},
+                    metadata={'session_metrics': metrics}
                 )
                 self.langfuse_client.flush()
+                
+                return {
+                    "systemMessage": f"📊 Session complete ({metrics.get('total_tools', 0)} tools)",
+                    "suppressOutput": False
+                }
             except Exception as e:
-                self._debug_log('TraceFinalizeError', {'error': str(e)})
+                self._debug_log('StopFinalizeError', {'error': str(e)})
 
-        # Format message with key metrics
-        tool_count = session_metrics.get('total_tools', 0)
-        message = f"📊 Session complete - {tool_count} tools"
-        duration = session_metrics.get('duration_minutes', 0)
-        if duration > 0:
-            message += f", {duration:.1f}min"
-        
-        errors = session_metrics.get('tool_errors', 0)
-        if errors > 0:
-            message += f", {errors} errors"
-
-        return {
-            "systemMessage": message,
-            "suppressOutput": False
-        }
+        return {"systemMessage": "📊 Session complete", "suppressOutput": False}
 
     def handle_session_end(self, hook_input: Dict) -> Dict:
-        """Handle session end event."""
-        self._debug_log('SessionEnd', hook_input)
-
-        # Get session ID and connect
+        """Handle final session termination."""
         self.session_id = hook_input.get('session_id')
-        if not self.session_id:
-            return {"success": True, "suppressOutput": True}
-
         self._connect_langfuse()
         trace = self._get_trace()
-
-        # Finalize trace
         if trace:
             try:
-                trace.update(
-                    output={'status': 'session_ended'}
-                )
+                trace.update(output={'status': 'session_ended'})
                 self.langfuse_client.flush()
-            except Exception as e:
-                self._debug_log('SessionEndError', {'error': str(e)})
-
+            except Exception: pass
         return {"success": True, "suppressOutput": True}
 
-    def _extract_last_conversation(self, transcript_path: str) -> tuple:
-        """Extract last user prompt and assistant response from transcript."""
+    # ========================================
+    # LOG-BASED RECONCILIATION
+    # ========================================
+
+    def _find_event_info(self, event_name: str, correlation_id: Optional[str] = None) -> Tuple[Optional[datetime], Optional[str]]:
+        """Search local raw-events log for historical event data."""
         try:
-            transcript_lines = Path(transcript_path).read_text().strip().split('\n')
+            log_dir = self.project_dir / '.claude' / 'observability' / 'raw-events'
+            log_file = log_dir / f"events-{datetime.now().strftime('%Y%m%d')}.jsonl"
+            
+            if not log_file.exists():
+                return None, None
 
-            user_prompt = None
-            assistant_response = None
-
-            # Find the last user and assistant messages
-            for line in reversed(transcript_lines):
-                try:
-                    entry = json.loads(line)
-                    
-                    # Handle both new and legacy transcript formats
-                    message = entry.get('message', entry)
-                    if not isinstance(message, dict):
-                        continue
-                        
-                    role = message.get('role')
-                    content = message.get('content')
-
-                    if not content:
-                        continue
-
-                    # Extract assistant response
-                    if role == 'assistant' and not assistant_response:
-                        if isinstance(content, list):
-                            # Content is array of text/tool_use blocks
-                            text_parts = [
-                                block.get('text', '')
-                                for block in content
-                                if isinstance(block, dict) and block.get('type') == 'text'
-                            ]
-                            if text_parts:
-                                assistant_response = '\n'.join(text_parts)
-                        elif isinstance(content, str):
-                            assistant_response = content
-
-                    # Extract user prompt
-                    elif role == 'user' and not user_prompt:
-                        if isinstance(content, list):
-                            text_parts = [
-                                block.get('text', '')
-                                for block in content
-                                if isinstance(block, dict) and block.get('type') == 'text'
-                            ]
-                            if text_parts:
-                                user_prompt = '\n'.join(text_parts)
-                        elif isinstance(content, str):
-                            user_prompt = content
-
-                    # Stop when we have both
-                    if user_prompt and assistant_response:
-                        break
-
-                except (json.JSONDecodeError, KeyError):
-                    continue
-
-            return (user_prompt, assistant_response)
-        except Exception as e:
-            self._debug_log('TranscriptExtractionError', {'error': str(e)})
-            return (None, None)
-
-    def _compute_session_metrics_from_logs(self) -> Dict:
-        """Compute aggregated session metrics by reading the local raw-events log file."""
-        try:
-            raw_log_file = self.project_dir / '.claude' / 'observability' / 'raw-events' / f"events-{datetime.now().strftime('%Y%m%d')}.jsonl"
-            if not raw_log_file.exists():
-                return {}
-
-            metrics = {
-                'total_tools': 0,
-                'tool_successes': 0,
-                'tool_errors': 0,
-                'tools_by_name': {},
-                'subagent_count': 0,
-                'prompt_count': 0,
-                'start_time': None,
-                'end_time': None
-            }
-
-            with raw_log_file.open('r') as f:
-                for line in f:
+            # Read backwards to find the most recent matching event
+            with open(log_file, 'r') as f:
+                lines = f.readlines()
+                for line in reversed(lines):
                     try:
                         entry = json.loads(line)
-                        event = entry.get('event')
                         data = entry.get('data', {})
                         
-                        # Filter by current session_id
+                        # Verify session
                         if data.get('session_id') != self.session_id:
                             continue
                             
-                        ts_str = entry.get('timestamp')
-                        if ts_str:
-                            ts = datetime.fromisoformat(ts_str)
-                            if not metrics['start_time'] or ts < metrics['start_time']:
-                                metrics['start_time'] = ts
-                            if not metrics['end_time'] or ts > metrics['end_time']:
-                                metrics['end_time'] = ts
-
-                        if event == 'PreToolUse':
-                            metrics['total_tools'] += 1
-                            tool = data.get('tool_name', 'unknown')
-                            metrics['tools_by_name'][tool] = metrics['tools_by_name'].get(tool, 0) + 1
-                        elif event == 'PostToolUse':
-                            res = (
-                                data.get('tool_response') or 
-                                data.get('tool_result') or 
-                                data.get('result') or 
-                                data.get('output') or 
-                                {}
-                            )
-                            if isinstance(res, dict) and res.get('error'):
-                                metrics['tool_errors'] += 1
+                        # Verify event and correlation ID (tool_use_id or agent_id)
+                        if entry.get('event') == event_name:
+                            if correlation_id:
+                                if data.get('tool_use_id') == correlation_id or data.get('agent_id') == correlation_id:
+                                    ts = datetime.fromisoformat(entry.get('timestamp'))
+                                    text = data.get('prompt') or data.get('user_message') or ""
+                                    return ts, text
                             else:
-                                metrics['tool_successes'] += 1
-                        elif event == 'UserPromptSubmit':
-                            metrics['prompt_count'] += 1
-                        elif event == 'SubagentStart':
-                            metrics['subagent_count'] += 1
-                    except Exception:
-                        continue
+                                # Generic event (like UserPromptSubmit)
+                                ts = datetime.fromisoformat(entry.get('timestamp'))
+                                text = data.get('prompt') or data.get('user_message') or ""
+                                return ts, text
+                    except Exception: continue
+        except Exception: pass
+        return None, None
+
+    def _compute_session_metrics_from_logs(self) -> Dict:
+        """Reconstruct session statistics from local log file."""
+        metrics = {'total_tools': 0, 'tool_errors': 0, 'subagent_count': 0, 'start_time': None, 'end_time': None}
+        try:
+            log_file = self.project_dir / '.claude' / 'observability' / 'raw-events' / f"events-{datetime.now().strftime('%Y%m%d')}.jsonl"
+            if not log_file.exists(): return metrics
+
+            with open(log_file, 'r') as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line)
+                        data = entry.get('data', {})
+                        if data.get('session_id') != self.session_id: continue
+                        
+                        ts = datetime.fromisoformat(entry.get('timestamp'))
+                        if not metrics['start_time']: metrics['start_time'] = ts
+                        metrics['end_time'] = ts
+
+                        ev = entry.get('event')
+                        if ev == 'PreToolUse': metrics['total_tools'] += 1
+                        elif ev == 'SubagentStart': metrics['subagent_count'] += 1
+                        elif ev == 'PostToolUse':
+                            res = data.get('tool_response') or data.get('tool_result') or {}
+                            if isinstance(res, dict) and res.get('error'): metrics['tool_errors'] += 1
+                    except Exception: continue
             
-            # Finalize durations
             if metrics['start_time'] and metrics['end_time']:
-                duration_seconds = (metrics['end_time'] - metrics['start_time']).total_seconds()
-                metrics['duration_seconds'] = duration_seconds
-                metrics['duration_minutes'] = round(duration_seconds / 60, 2)
-            
-            return metrics
-        except Exception as e:
-            self._debug_log('MetricsAggregationError', {'error': str(e)})
-            return {}
+                metrics['duration_minutes'] = round((metrics['end_time'] - metrics['start_time']).total_seconds() / 60, 2)
+        except Exception: pass
+        return metrics
 
     # ========================================
     # UTILITIES
     # ========================================
 
-    def _debug_log(self, event: str, data: Dict) -> None:
-        """Log debug information to help diagnose issues."""
-        if not self.debug_mode:
-            return
-
+    def _is_langfuse_healthy(self) -> bool:
+        """Quick health check (<2s)."""
         try:
-            debug_dir = self.project_dir / '.claude' / 'observability' / 'debug'
-            debug_dir.mkdir(parents=True, exist_ok=True)
+            host = self.langfuse_config.get('host', 'http://localhost:3000')
+            with urllib.request.urlopen(f"{host}/api/public/health", timeout=2) as r:
+                return r.status == 200
+        except Exception: return False
 
-            debug_file = debug_dir / f"debug-{datetime.now().strftime('%Y%m%d')}.jsonl"
+    def _connect_langfuse(self) -> None:
+        """Initialize Langfuse client."""
+        if self.langfuse_client: return
+        try:
+            import langfuse
+            pk = self.langfuse_config.get('public_key') or os.environ.get('LANGFUSE_PUBLIC_KEY')
+            sk = self.langfuse_config.get('secret_key') or os.environ.get('LANGFUSE_SECRET_KEY')
+            host = self.langfuse_config.get('host') or os.environ.get('LANGFUSE_HOST', 'http://localhost:3000')
+            if pk and sk:
+                self.langfuse_client = langfuse.Langfuse(public_key=pk, secret_key=sk, host=host)
+        except Exception: pass
 
-            debug_entry = {
-                'timestamp': datetime.now().isoformat(),
-                'event': event,
-                'data': data
-            }
+    def _get_trace(self):
+        """Get/Create Trace object."""
+        if not self.langfuse_client or not self.session_id: return None
+        try:
+            return self.langfuse_client.trace(
+                id=self.session_id,
+                name="claude-code-session",
+                session_id=self.session_id,
+                metadata={'project': self.project_dir.name}
+            )
+        except Exception: return None
 
-            with debug_file.open('a') as f:
-                f.write(json.dumps(debug_entry) + '\n')
-        except Exception:
-            pass  # Don't fail if debug logging fails
+    def _extract_last_conversation(self, path: str) -> tuple:
+        """Get last turn from transcript."""
+        try:
+            lines = Path(path).read_text().strip().split('\n')
+            user, assistant = None, None
+            for line in reversed(lines):
+                try:
+                    entry = json.loads(line)
+                    msg = entry.get('message', entry)
+                    role, content = msg.get('role'), msg.get('content')
+                    if role == 'assistant' and not assistant: assistant = content
+                    elif role == 'user' and not user: user = content
+                    if user and assistant: break
+                except Exception: continue
+            return user, assistant
+        except Exception: return None, None
+
+    def _spawn_async_setup(self):
+        """Background setup."""
+        script = Path(__file__).parent / 'langfuse-setup.py'
+        if script.exists():
+            subprocess.Popen(['uv', 'run', '--quiet', str(script)], 
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=self.project_dir)
+
+    def _debug_log(self, event: str, data: Dict) -> None:
+        """Debug logging to file."""
+        if not self.debug_mode: return
+        try:
+            log_dir = self.project_dir / '.claude' / 'observability' / 'debug'
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file = log_dir / f"debug-{datetime.now().strftime('%Y%m%d')}.jsonl"
+            with log_file.open('a') as f:
+                f.write(json.dumps({'timestamp': datetime.now().isoformat(), 'event': event, 'data': data}) + '\n')
+        except Exception: pass
 
     def _generate_session_id(self) -> str:
-        """Generate unique session ID."""
-        timestamp = datetime.now().isoformat()
-        random_data = os.urandom(8).hex()
-        return hashlib.sha256(f"{timestamp}{random_data}".encode()).hexdigest()[:16]
+        return hashlib.sha256(f"{datetime.now().isoformat()}{os.urandom(8).hex()}".encode()).hexdigest()[:16]
 
-
-# ========================================
-# CONFIGURATION
-# ========================================
 
 def load_config(project_dir: Path) -> Dict:
-    """Load configuration from .claude/dev-plugin.local.md."""
-    config_paths = [
-        project_dir / '.claude' / 'dev-plugin.local.md',
-        Path.home() / '.claude' / 'plugins' / 'dev-plugin' / 'settings.local.md'
-    ]
+    """Load settings."""
+    config_path = project_dir / '.claude' / 'dev-plugin.local.md'
+    if config_path.exists():
+        try:
+            content = config_path.read_text()
+            if content.startswith('---'):
+                import yaml
+                parts = content.split('---', 2)
+                if len(parts) >= 2: return yaml.safe_load(parts[1]) or {}
+        except Exception: pass
+    return {'observability': {'enabled': False}}
 
-    for config_path in config_paths:
-        if config_path.exists():
-            try:
-                content = config_path.read_text()
-                if content.startswith('---'):
-                    import yaml
-                    parts = content.split('---', 2)
-                    if len(parts) >= 2:
-                        return yaml.safe_load(parts[1]) or {}
-            except Exception:
-                pass
-
-    return {
-        'observability': {
-            'enabled': False,
-            'langfuse': {
-                'enabled': False,
-                'auto_setup': False,
-                'auto_start': False
-            }
-        }
-    }
-
-
-# ========================================
-# MAIN ENTRY POINT
-# ========================================
 
 def main():
-    """Main hook execution."""
     try:
-        # Read hook input
         try:
-            stdin_content = sys.stdin.read().strip()
-            hook_input = json.loads(stdin_content) if stdin_content else {}
-        except (json.JSONDecodeError, ValueError):
-            hook_input = {}
+            stdin = sys.stdin.read().strip()
+            hook_input = json.loads(stdin) if stdin else {}
+        except Exception: hook_input = {}
 
-        # Get project directory
         project_dir = Path(os.environ.get('CLAUDE_PROJECT_DIR', os.getcwd()))
 
-        # ALWAYS log all incoming events first (before any filtering)
+        # Raw logging for state reconstruction
         try:
-            raw_log_dir = project_dir / '.claude' / 'observability' / 'raw-events'
-            raw_log_dir.mkdir(parents=True, exist_ok=True)
-            raw_log_file = raw_log_dir / f"events-{datetime.now().strftime('%Y%m%d')}.jsonl"
+            log_dir = project_dir / '.claude' / 'observability' / 'raw-events'
+            log_dir.mkdir(parents=True, exist_ok=True)
+            with open(log_dir / f"events-{datetime.now().strftime('%Y%m%d')}.jsonl", 'a') as f:
+                f.write(json.dumps({'timestamp': datetime.now().isoformat(), 
+                                    'event': hook_input.get('hook_event_name', 'unknown'), 
+                                    'data': hook_input}) + '\n')
+        except Exception: pass
 
-            with raw_log_file.open('a') as f:
-                f.write(json.dumps({
-                    'timestamp': datetime.now().isoformat(),
-                    'event': hook_input.get('hook_event_name', 'unknown'),
-                    'data': hook_input
-                }) + '\n')
-        except Exception:
-            pass  # Don't fail the hook if logging fails
-
-        # Load configuration
         config = load_config(project_dir)
-
-        # Check if enabled
         if not config.get('observability', {}).get('enabled', False):
             print(json.dumps({"success": True, "suppressOutput": True}))
             sys.exit(0)
 
-        # Initialize tracker
         tracker = ObservabilityTracker(project_dir, config)
+        event = hook_input.get('hook_event_name', '')
+        
+        if event == 'SessionStart': res = tracker.handle_session_start(hook_input)
+        elif event == 'PreToolUse': res = tracker.handle_pre_tool_use(hook_input)
+        elif event == 'PostToolUse': res = tracker.handle_tool_use(hook_input)
+        elif event == 'UserPromptSubmit': res = tracker.handle_prompt(hook_input)
+        elif event == 'SubagentStart': res = tracker.handle_subagent_start(hook_input)
+        elif event == 'SubagentStop': res = tracker.handle_subagent_stop(hook_input)
+        elif event == 'Stop': res = tracker.handle_stop(hook_input)
+        elif event == 'SessionEnd': res = tracker.handle_session_end(hook_input)
+        else: res = {"success": True, "suppressOutput": True}
 
-        # Route by hook event
-        hook_event = hook_input.get('hook_event_name', '')
-
-        if hook_event == 'SessionStart':
-            result = tracker.handle_session_start(hook_input)
-        elif hook_event == 'PreToolUse':
-            result = tracker.handle_pre_tool_use(hook_input)
-        elif hook_event == 'PostToolUse':
-            result = tracker.handle_tool_use(hook_input)
-        elif hook_event == 'UserPromptSubmit':
-            result = tracker.handle_prompt(hook_input)
-        elif hook_event == 'SubagentStart':
-            result = tracker.handle_subagent_start(hook_input)
-        elif hook_event == 'SubagentStop':
-            result = tracker.handle_subagent_stop(hook_input)
-        elif hook_event == 'Stop':
-            result = tracker.handle_stop(hook_input)
-        elif hook_event == 'SessionEnd':
-            result = tracker.handle_session_end(hook_input)
-        else:
-            result = {"success": True, "suppressOutput": True}
-
-        print(json.dumps(result))
+        print(json.dumps(res))
         sys.exit(0)
-
     except Exception as e:
-        error_output = {
-            "systemMessage": f"⚠️ Observability error: {str(e)}",
-            "suppressOutput": False
-        }
-        print(json.dumps(error_output))
+        print(json.dumps({"systemMessage": f"⚠️ Observability error: {str(e)}", "suppressOutput": False}))
         sys.exit(0)
-
 
 if __name__ == '__main__':
     main()
