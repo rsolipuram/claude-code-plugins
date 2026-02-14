@@ -348,9 +348,9 @@ class ObservabilityTracker:
         self._connect_langfuse()
         trace = self._get_trace()
 
-        # Extract subagent info
-        subagent_type = hook_input.get('subagent_type', 'Unknown')
-        subagent_id = hook_input.get('subagent_id')
+        # Extract agent info (correct field names)
+        agent_type = hook_input.get('agent_type', 'Unknown')
+        agent_id = hook_input.get('agent_id')
         prompt = hook_input.get('prompt', '')
 
         # Send to Langfuse immediately
@@ -359,11 +359,11 @@ class ObservabilityTracker:
                 trace.event(
                     name="subagent_start",
                     start_time=datetime.now(),
-                    input=prompt[:500] if prompt else None,  # Truncate long prompts
+                    input=prompt,
                     metadata={
                         'event': 'SubagentStart',
-                        'subagent_type': subagent_type,
-                        'subagent_id': subagent_id
+                        'agent_type': agent_type,
+                        'agent_id': agent_id
                     }
                 )
                 self.langfuse_client.flush()
@@ -384,9 +384,10 @@ class ObservabilityTracker:
         self._connect_langfuse()
         trace = self._get_trace()
 
-        # Extract subagent info
-        subagent_type = hook_input.get('subagent_type', 'Unknown')
-        subagent_id = hook_input.get('subagent_id')
+        # Extract agent info (correct field names)
+        agent_type = hook_input.get('agent_type', 'Unknown')
+        agent_id = hook_input.get('agent_id')
+        agent_transcript = hook_input.get('agent_transcript_path')
 
         # Send to Langfuse immediately
         if trace:
@@ -396,8 +397,9 @@ class ObservabilityTracker:
                     start_time=datetime.now(),
                     metadata={
                         'event': 'SubagentStop',
-                        'subagent_type': subagent_type,
-                        'subagent_id': subagent_id
+                        'agent_type': agent_type,
+                        'agent_id': agent_id,
+                        'agent_transcript_path': agent_transcript
                     }
                 )
                 self.langfuse_client.flush()
