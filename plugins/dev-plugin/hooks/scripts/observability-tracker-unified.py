@@ -2,7 +2,7 @@
 # /// script
 # dependencies = [
 #   "pyyaml",
-#   "langfuse",
+#   "langfuse==2.60.10",
 # ]
 # ///
 """
@@ -58,6 +58,8 @@ class ObservabilityTracker:
                     # Create trace immediately
                     trace = self._get_trace()
                     if trace:
+                        # Ensure data is flushed
+                        self.langfuse_client.flush()
                         return {
                             "systemMessage": f"📊 Session tracking: {self.session_id[:8]} (Langfuse ready)",
                             "suppressOutput": False
@@ -102,45 +104,31 @@ class ObservabilityTracker:
         try:
             import langfuse
             
-            # Extract keys with fallbacks to environment variables
+            # Extract keys
             pk = self.langfuse_config.get('public_key') or os.environ.get('LANGFUSE_PUBLIC_KEY')
             sk = self.langfuse_config.get('secret_key') or os.environ.get('LANGFUSE_SECRET_KEY')
             host = self.langfuse_config.get('host') or os.environ.get('LANGFUSE_HOST', 'http://localhost:3000')
 
-            self._debug_log('ConnectAttempt', {
-                'has_pk': bool(pk),
-                'has_sk': bool(sk),
-                'pk_preview': f"{pk[:10]}..." if pk else None,
-                'host': host,
-                'config_keys': list(self.langfuse_config.keys())
-            })
-
             if not pk or not sk:
-                self._debug_log('ConnectSkip', {'reason': 'Missing keys', 'config': self.langfuse_config})
+                self._debug_log('ConnectSkip', {'reason': 'Missing keys'})
                 return
 
+            # Initialize client explicitly
             self.langfuse_client = langfuse.Langfuse(
                 public_key=pk,
                 secret_key=sk,
                 host=host
             )
             
-            # Verify client state
-            client_enabled = getattr(self.langfuse_client, 'enabled', False)
-            has_trace_attr = hasattr(self.langfuse_client, 'trace')
-            
+            # Log client state
             self._debug_log('ClientState', {
-                'enabled': client_enabled,
-                'has_trace': has_trace_attr,
-                'dir': [a for a in dir(self.langfuse_client) if not a.startswith('_')]
+                'enabled': getattr(self.langfuse_client, 'enabled', 'unknown'),
+                'has_trace_attr': hasattr(self.langfuse_client, 'trace'),
+                'class': str(type(self.langfuse_client))
             })
-
-            if not has_trace_attr:
-                self._debug_log('ConnectError', {'error': f'Langfuse client missing trace method'})
-                self.langfuse_client = None
                 
-        except ImportError:
-            self._debug_log('ConnectError', {'error': 'langfuse module not found'})
+        except ImportError as e:
+            self._debug_log('ConnectError', {'error': f'langfuse module not found: {str(e)}'})
             self.langfuse_client = None
         except Exception as e:
             self._debug_log('ConnectError', {'error': str(e)})
@@ -152,9 +140,10 @@ class ObservabilityTracker:
             return None
 
         try:
-            # Check if trace method exists (v2 SDK)
-            if hasattr(self.langfuse_client, 'trace'):
-                trace = self.langfuse_client.trace(
+            # Check for trace method
+            trace_func = getattr(self.langfuse_client, 'trace', None)
+            if callable(trace_func):
+                return trace_func(
                     id=self.session_id,
                     name="claude-code-session",
                     user_id=self.langfuse_config.get('userId'),
@@ -166,10 +155,11 @@ class ObservabilityTracker:
                         'project_dir': str(self.project_dir)
                     }
                 )
-                return trace
-            else:
-                self._debug_log('TraceError', {'error': 'Client missing trace method'})
-                return None
+            
+            # Fallback
+            self._debug_log('TraceFallback', {'reason': 'trace() method not found or not callable'})
+            return None
+            
         except Exception as e:
             self._debug_log('TraceGetError', {'error': str(e)})
             return None
@@ -179,7 +169,7 @@ class ObservabilityTracker:
         setup_script = Path(__file__).parent / 'langfuse-setup.py'
         if setup_script.exists():
             subprocess.Popen(
-                ['uv', 'run', str(setup_script)],
+                ['uv', 'run', '--quiet', str(setup_script)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 cwd=self.project_dir
@@ -389,7 +379,6 @@ class ObservabilityTracker:
                     entry = json.loads(line)
                     
                     # Handle both new and legacy transcript formats
-                    # New format nests role/content under 'message' key
                     message = entry.get('message', entry)
                     if not isinstance(message, dict):
                         continue
