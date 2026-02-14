@@ -1,7 +1,53 @@
 {
   "description": "Intelligent development automation: quality checks, auto-formatting, git checkpointing, safety validations, observability tracking, and CLAUDE.md management",
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/event-logger.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/event-logger.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/event-logger.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/event-logger.py",
+            "timeout": 5
+          }
+        ]
+      },
       {
         "matcher": "Bash",
         "hooks": [
@@ -15,6 +61,16 @@
     ],
     "PostToolUse": [
       {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/event-logger.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "Edit|Write",
         "hooks": [
           {
@@ -25,10 +81,39 @@
         ]
       }
     ],
+    "SubagentStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/event-logger.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/event-logger.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "Notification": [
       {
         "matcher": "*",
         "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/event-logger.py",
+            "timeout": 5
+          },
           {
             "type": "command",
             "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/notify-approval-needed.py",
@@ -41,6 +126,11 @@
       {
         "matcher": "*",
         "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/event-logger.py",
+            "timeout": 5
+          },
           {
             "type": "command",
             "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/quality-check.py",
