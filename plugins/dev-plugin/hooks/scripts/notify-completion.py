@@ -241,6 +241,24 @@ def load_config(project_dir: Path) -> Dict:
 def main():
     """Main hook execution."""
     try:
+        # Read stdin for hook event data
+        stdin_data = None
+        try:
+            stdin_text = sys.stdin.read()
+            if stdin_text:
+                stdin_data = json.loads(stdin_text)
+        except Exception:
+            pass
+
+        # Dump hook event message to stderr for debugging
+        print(f"\n{'='*60}", file=sys.stderr)
+        print(f"STOP HOOK MESSAGE DUMP", file=sys.stderr)
+        print(f"{'='*60}", file=sys.stderr)
+        print(f"STDIN: {json.dumps(stdin_data, indent=2) if stdin_data else 'None'}", file=sys.stderr)
+        print(f"ENV - CLAUDE_PROJECT_DIR: {os.environ.get('CLAUDE_PROJECT_DIR', 'not set')}", file=sys.stderr)
+        print(f"ENV - CLAUDE_PLUGIN_ROOT: {os.environ.get('CLAUDE_PLUGIN_ROOT', 'not set')}", file=sys.stderr)
+        print(f"{'='*60}\n", file=sys.stderr)
+
         project_dir = Path(os.environ.get('CLAUDE_PROJECT_DIR', os.getcwd()))
         config = load_config(project_dir)
         notifier = CompletionNotifier(project_dir, config)
