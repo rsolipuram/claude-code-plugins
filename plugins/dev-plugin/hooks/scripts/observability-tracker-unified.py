@@ -272,8 +272,8 @@ class ObservabilityTracker:
         # Send to Langfuse immediately (no truncation)
         if trace:
             try:
-                trace.span(
-                    name=f"tool_{tool_name}",
+                trace.event(
+                    name=f"Posttool_{tool_name}",
                     start_time=datetime.now(),
                     input=tool_input_data,
                     output=tool_result if tool_result else None,
@@ -626,6 +626,21 @@ def main():
 
         # Get project directory
         project_dir = Path(os.environ.get('CLAUDE_PROJECT_DIR', os.getcwd()))
+
+        # ALWAYS log all incoming events first (before any filtering)
+        try:
+            raw_log_dir = project_dir / '.claude' / 'observability' / 'raw-events'
+            raw_log_dir.mkdir(parents=True, exist_ok=True)
+            raw_log_file = raw_log_dir / f"events-{datetime.now().strftime('%Y%m%d')}.jsonl"
+
+            with raw_log_file.open('a') as f:
+                f.write(json.dumps({
+                    'timestamp': datetime.now().isoformat(),
+                    'event': hook_input.get('hook_event_name', 'unknown'),
+                    'data': hook_input
+                }) + '\n')
+        except Exception:
+            pass  # Don't fail the hook if logging fails
 
         # Load configuration
         config = load_config(project_dir)
