@@ -131,9 +131,11 @@ class CompletionNotifier:
             if not notif_config:
                 return True, "Notifications disabled"
             # If True, use default config (sound only, no speech)
+            plugin_root = os.environ.get('CLAUDE_PLUGIN_ROOT', '')
+            audio_path = f'{plugin_root}/hooks/audio' if plugin_root else '~/.claude/audio'
             notif_config = {
                 'enabled': True,
-                'audio': {'mode': 'sound_only', 'sound_library': '~/.claude/audio'},
+                'audio': {'mode': 'sound_only', 'sound_library': audio_path},
                 'completion': {'enabled': True, 'sound': True, 'tts': False, 'contextual_voice': False},
                 'tts': {'enabled': False, 'timeout': 30, 'rate_adjustment': 0}
             }
@@ -216,12 +218,15 @@ def load_config(project_dir: Path) -> Dict:
             except Exception:
                 pass
 
+    plugin_root = os.environ.get('CLAUDE_PLUGIN_ROOT', '')
+    audio_path = f'{plugin_root}/hooks/audio' if plugin_root else '~/.claude/audio'
+
     return {
         'notifications': {
             'enabled': True,
             'audio': {
                 'mode': 'sound_only',
-                'sound_library': '~/.claude/audio'
+                'sound_library': audio_path
             },
             'completion': {
                 'enabled': True,
