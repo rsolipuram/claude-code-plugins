@@ -124,6 +124,18 @@ class CompletionNotifier:
         """Send completion notifications based on configuration."""
         notif_config = self.config.get('notifications', {})
 
+        # Handle case where notifications is just a boolean
+        if isinstance(notif_config, bool):
+            if not notif_config:
+                return True, "Notifications disabled"
+            # If True, use default config
+            notif_config = {
+                'enabled': True,
+                'audio': {'mode': 'mixed', 'sound_library': '~/.claude/audio'},
+                'completion': {'enabled': True, 'sound': True, 'tts': True, 'contextual_voice': True},
+                'tts': {'enabled': True, 'timeout': 30, 'rate_adjustment': 0}
+            }
+
         if not notif_config.get('enabled', True):
             return True, "Notifications disabled"
 
