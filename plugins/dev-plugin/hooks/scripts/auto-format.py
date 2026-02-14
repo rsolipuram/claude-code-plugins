@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# /// script
+# dependencies = [
+#   "pyyaml",
+# ]
+# ///
 """
 Auto-formatting hook for Claude Code.
 Automatically formats files using prettier after Edit/Write operations.

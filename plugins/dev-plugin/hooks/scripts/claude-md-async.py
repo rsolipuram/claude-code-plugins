@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# /// script
+# dependencies = []
+# ///
 """
 Async CLAUDE.md updater - invokes claude-md-manager skill in background.
 Logs to .claude/async-logs/ for troubleshooting.

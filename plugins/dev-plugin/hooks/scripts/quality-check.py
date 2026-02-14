@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# /// script
+# dependencies = [
+#   "pyyaml",
+# ]
+# ///
 """
 Intelligent code quality checker for Claude Code.
 Automatically detects project type and runs appropriate checks.

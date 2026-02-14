@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# /// script
+# dependencies = [
+#   "pyyaml",
+# ]
+# ///
 """
 Git checkpointing hook for Claude Code.
 Automatically creates detailed git commits at the end of sessions.

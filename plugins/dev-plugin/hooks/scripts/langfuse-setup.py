@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# /// script
+# dependencies = [
+#   "langfuse",
+# ]
+# ///
 """
 Background Langfuse setup script.
 Runs asynchronously to set up complete Langfuse environment.

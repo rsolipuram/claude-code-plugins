@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# /// script
+# dependencies = [
+#   "pyyaml",
+#   "langfuse",
+# ]
+# ///
 """
 Real-time Observability Tracker for Claude Code sessions.
 Sends events to Langfuse immediately as they happen.
@@ -131,7 +137,7 @@ class ObservabilityTracker:
         setup_script = Path(__file__).parent / 'langfuse-setup.py'
         if setup_script.exists():
             subprocess.Popen(
-                ['python3', str(setup_script)],
+                ['uv', 'run', str(setup_script)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 cwd=self.project_dir

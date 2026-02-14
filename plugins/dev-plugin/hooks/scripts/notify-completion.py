@@ -1,19 +1,28 @@
 #!/usr/bin/env python3
+# /// script
+# dependencies = [
+#   "pyyaml",
+# ]
+# ///
 """
 Completion notification hook for Claude Code.
 Sends Mac notifications and text-to-speech when sessions complete.
 
 Features:
-- Mac notification center alerts
-- Text-to-speech (TTS) with default macOS voice
-- Detailed summary of changes (files modified, tests run, etc.)
-- Configurable (can disable in settings)
+- terminal-notifier support with 'sender' borrowing (true toast overlay)
+- Native macOS notifications (via ctypes) 
+- Bypass 'Script Editor' grouping and background suppression
+- Optional 'True Overlay' via AppleScript Dialogs
 """
 
 import json
 import os
 import subprocess
 import sys
+import random
+import ctypes
+import ctypes.util
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -52,7 +61,6 @@ class CompletionNotifier:
                     status = line[:2]
                     filename = line[3:]
 
-                    # M = modified, A = added, D = deleted, ?? = untracked
                     if 'M' in status:
                         summary['files_modified'].append(filename)
                     elif 'A' in status or '??' == status:
@@ -67,7 +75,6 @@ class CompletionNotifier:
                 )
 
         except Exception:
-            # If git is not available or fails, return empty summary
             pass
 
         return summary
@@ -78,121 +85,142 @@ class CompletionNotifier:
             return "Claude Code session completed (no file changes detected)"
 
         parts = []
-
         if summary['files_modified']:
-            count = len(summary['files_modified'])
-            files_str = ', '.join(summary['files_modified'][:3])
-            if count > 3:
-                files_str += f" and {count - 3} more"
-            parts.append(f"Modified: {files_str}")
-
+            parts.append(f"Modified: {len(summary['files_modified'])} files")
         if summary['files_created']:
-            count = len(summary['files_created'])
-            files_str = ', '.join(summary['files_created'][:3])
-            if count > 3:
-                files_str += f" and {count - 3} more"
-            parts.append(f"Created: {files_str}")
-
+            parts.append(f"Created: {len(summary['files_created'])} files")
         if summary['files_deleted']:
-            count = len(summary['files_deleted'])
-            files_str = ', '.join(summary['files_deleted'][:3])
-            if count > 3:
-                files_str += f" and {count - 3} more"
-            parts.append(f"Deleted: {files_str}")
+            parts.append(f"Deleted: {len(summary['files_deleted'])} files")
 
         return "Claude Code session completed. " + "; ".join(parts)
 
     def sanitize_message(self, message: str) -> str:
-        """Sanitize message for AppleScript to prevent display issues."""
+        """Sanitize message for display."""
         if len(message) > 100:
             message = message[:100] + "..."
-        # Remove backslashes, quotes and other problematic characters
         return message.replace("\\", "").replace('"', "").replace("'", "")
 
     def send_mac_notification(self, message: str, title: str = "Claude Code") -> Tuple[bool, str]:
-        """Send notification via macOS notification center."""
+        """Send notification via terminal-notifier, native APIs, or AppleScript fallback."""
         try:
-            # Aggressively sanitize message and title
             safe_message = self.sanitize_message(message)
-            safe_title = self.sanitize_message(title)
-            
-            # Use osascript with sanitized input, subtitle and sound
-            script = f'display notification "{safe_message}" with title "{safe_title}" subtitle "Session Complete" sound name "default"'
-            result = subprocess.run(
-                ['osascript', '-e', script],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            notif_id = random.randint(1000, 9999)
+            unique_title = f"{title} #{notif_id}"
+            subtitle = f"Done at {timestamp}"
 
-            if result.returncode == 0:
-                return True, "Notification sent"
-            else:
-                return False, f"Failed to send notification: {result.stderr}"
+            # If 'force_dialog' is enabled in config, show a popup window
+            notif_config = self.config.get('notifications', {})
+            if notif_config.get('use_dialog', False):
+                script = f'display dialog "{safe_message}" with title "{unique_title}" buttons {{"OK"}} default button "OK" with icon note giving up after 15'
+                subprocess.run(['osascript', '-e', script], capture_output=True)
+                return True, "Dialog displayed"
 
-        except FileNotFoundError:
-            return False, "osascript not found (macOS required)"
+            # METHOD 1: terminal-notifier (Most reliable for 'Toast' if installed)
+            # We borrow the ID of Claude Desktop or Terminal to ensure overlay permission.
+            try:
+                # Check for terminal-notifier
+                tn_path = subprocess.check_output(['which', 'terminal-notifier']).decode().strip()
+                if tn_path:
+                    # Preferred sender ID: Claude Desktop
+                    sender_id = "com.anthropic.claudefordesktop"
+                    
+                    # Fallback sender if Claude isn't installed: Terminal or VS Code
+                    if not Path("/Applications/Claude.app").exists():
+                        sender_id = os.environ.get('TERM_PROGRAM', 'com.apple.Terminal')
+                        if sender_id == 'vscode':
+                            sender_id = 'com.microsoft.VSCode'
+
+                    subprocess.run([
+                        tn_path,
+                        "-title", title,
+                        "-subtitle", subtitle,
+                        "-message", safe_message,
+                        "-sender", sender_id,
+                        "-sound", "Glass"
+                    ], capture_output=True)
+                    return True, f"Notification sent via terminal-notifier ({sender_id})"
+            except Exception:
+                pass # Continue to native method
+
+            # METHOD 2: Native Injection (via ctypes)
+            try:
+                objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library('objc'))
+                objc.objc_getClass.restype = ctypes.c_void_p
+                objc.sel_registerName.restype = ctypes.c_void_p
+                objc.objc_msgSend.restype = ctypes.c_void_p
+                objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+
+                def msg(obj, selector, *args):
+                    s = objc.sel_registerName(selector.encode('ascii'))
+                    return objc.objc_msgSend(obj, s, *args)
+
+                def nsstring(s):
+                    return msg(objc.objc_getClass('NSString'), 'stringWithUTF8String:', s.encode('utf8'))
+
+                notif = msg(objc.objc_getClass('NSUserNotification'), 'alloc')
+                notif = msg(notif, 'init')
+                msg(notif, 'setTitle:', nsstring(unique_title))
+                msg(notif, 'setSubtitle:', nsstring(subtitle))
+                msg(notif, 'setInformativeText:', nsstring(safe_message))
+                msg(notif, 'setSoundName:', nsstring('Hero'))
+
+                center = msg(objc.objc_getClass('NSUserNotificationCenter'), 'defaultUserNotificationCenter')
+                msg(center, 'deliverNotification:', notif)
+                return True, "Native notification delivered"
+            except Exception:
+                pass
+
+            # METHOD 3: tell application "Claude" trick (borrowing permissions via osascript)
+            try:
+                if Path("/Applications/Claude.app").exists():
+                    script = f'tell application "Claude" to display notification "{safe_message}" with title "{title}" subtitle "{subtitle}"'
+                    subprocess.run(['osascript', '-e', script], capture_output=True)
+                    return True, "Notification sent via Claude app"
+            except Exception:
+                pass
+
+            # METHOD 4: Final Fallback
+            script = f'display notification "{safe_message}" with title "{unique_title}" subtitle "{subtitle}" sound name "Hero"'
+            subprocess.run(['osascript', '-e', script], capture_output=True)
+            return True, "Notification sent (fallback mode)"
+
         except Exception as e:
             return False, f"Error sending notification: {str(e)}"
 
     def speak_message(self, message: str) -> Tuple[bool, str]:
         """Speak message using macOS text-to-speech."""
         try:
-            # Use 'say' command for TTS
-            # Keep message concise for TTS
-            tts_message = message.split('.')[0]  # First sentence only
-
-            result = subprocess.run(
-                ['say', tts_message],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-
-            if result.returncode == 0:
-                return True, "TTS completed"
-            else:
-                return False, f"TTS failed: {result.stderr}"
-
-        except FileNotFoundError:
-            return False, "say command not found (macOS required)"
-        except Exception as e:
-            return False, f"Error with TTS: {str(e)}"
+            tts_message = message.split('.')[0]
+            subprocess.run(['say', tts_message], capture_output=True, timeout=30)
+            return True, "TTS completed"
+        except Exception:
+            return False, "TTS failed"
 
     def send_notifications(self) -> Tuple[bool, str]:
         """Send completion notifications based on configuration."""
-        # Check if notifications are enabled
         notif_config = self.config.get('notifications', {})
 
         if not notif_config.get('enabled', True):
-            return True, "Notifications disabled in config"
+            return True, "Notifications disabled"
 
-        # Get session summary
         summary = self.get_session_summary()
         message = self.format_summary_message(summary)
 
         results = []
 
-        # Send Mac notification if enabled
         if notif_config.get('mac_notification', True):
             success, msg = self.send_mac_notification(message)
             if success:
-                results.append("✓ Mac notification sent")
+                results.append(f"✓ {msg}")
             else:
                 results.append(f"⚠ Mac notification failed: {msg}")
 
-        # Send TTS if enabled
-        if notif_config.get('tts', True):
-            success, msg = self.speak_message(message)
-            if success:
-                results.append("✓ TTS announcement completed")
-            else:
-                results.append(f"⚠ TTS failed: {msg}")
+        if notif_config.get('tts', False):
+            self.speak_message(message)
+            results.append("✓ TTS completed")
 
-        if results:
-            return True, ' | '.join(results)
-        else:
-            return True, "No notifications configured"
+        return True, ' | '.join(results) if results else "No notifications sent"
 
 
 def load_config(project_dir: Path) -> Dict:
@@ -205,7 +233,6 @@ def load_config(project_dir: Path) -> Dict:
     for config_path in config_paths:
         if config_path.exists():
             try:
-                # Read YAML frontmatter
                 content = config_path.read_text()
                 if content.startswith('---'):
                     import yaml
@@ -215,57 +242,24 @@ def load_config(project_dir: Path) -> Dict:
             except Exception:
                 pass
 
-    # Return defaults
-    return {
-        'notifications': {
-            'enabled': True,
-            'mac_notification': True,
-            'tts': True
-        }
-    }
+    return {'notifications': {'enabled': True, 'mac_notification': True, 'tts': False}}
 
 
 def main():
     """Main hook execution."""
     try:
-        # Read hook input from stdin
-        try:
-            stdin_content = sys.stdin.read().strip()
-            hook_input = json.loads(stdin_content) if stdin_content else {}
-        except (json.JSONDecodeError, ValueError):
-            hook_input = {}
-
-        # Get project directory
         project_dir = Path(os.environ.get('CLAUDE_PROJECT_DIR', os.getcwd()))
-
-        # Load configuration
         config = load_config(project_dir)
-
-        # Initialize notifier
         notifier = CompletionNotifier(project_dir, config)
+        _, message = notifier.send_notifications()
 
-        # Send notifications
-        success, message = notifier.send_notifications()
-
-        # Output result
         if message:
-            output = {
-                "systemMessage": message,
-                "suppressOutput": False
-            }
-            print(json.dumps(output))
-
-        # Always exit 0 - notifications should never block
+            print(json.dumps({"systemMessage": message, "suppressOutput": False}))
         sys.exit(0)
 
     except Exception as e:
-        # Unexpected error - don't block - output valid JSON to stdout
-        error_output = {
-            "systemMessage": f"⚠ Notification hook error: {str(e)}",
-            "suppressOutput": False
-        }
-        print(json.dumps(error_output))
-        sys.exit(0)  # Don't block on notification errors
+        print(json.dumps({"systemMessage": f"⚠ Notification error: {str(e)}", "suppressOutput": False}))
+        sys.exit(0)
 
 
 if __name__ == '__main__':

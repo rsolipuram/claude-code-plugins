@@ -1,6 +1,0 @@
-# Core dependencies (required for all hooks to work)
-pyyaml>=6.0
-
-# Optional dependencies (for specific features)
-# Uncomment and install if you want to use these features:
-# langfuse>=2.0  # For observability tracking with Langfuse integration
