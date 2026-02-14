@@ -250,16 +250,24 @@ def main():
         except Exception:
             pass
 
-        # Dump hook event message to stderr for debugging
-        print(f"\n{'='*60}", file=sys.stderr)
-        print(f"STOP HOOK MESSAGE DUMP", file=sys.stderr)
-        print(f"{'='*60}", file=sys.stderr)
-        print(f"STDIN: {json.dumps(stdin_data, indent=2) if stdin_data else 'None'}", file=sys.stderr)
-        print(f"ENV - CLAUDE_PROJECT_DIR: {os.environ.get('CLAUDE_PROJECT_DIR', 'not set')}", file=sys.stderr)
-        print(f"ENV - CLAUDE_PLUGIN_ROOT: {os.environ.get('CLAUDE_PLUGIN_ROOT', 'not set')}", file=sys.stderr)
-        print(f"{'='*60}\n", file=sys.stderr)
-
+        # Log to file for debugging
         project_dir = Path(os.environ.get('CLAUDE_PROJECT_DIR', os.getcwd()))
+        log_file = project_dir / '.claude' / 'hook-debug.log'
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+
+        from datetime import datetime
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        with open(log_file, 'a') as f:
+            f.write(f"\n{'='*60}\n")
+            f.write(f"STOP HOOK - {timestamp}\n")
+            f.write(f"{'='*60}\n")
+            f.write(f"STDIN: {json.dumps(stdin_data, indent=2) if stdin_data else 'None'}\n")
+            f.write(f"ENV - CLAUDE_PROJECT_DIR: {os.environ.get('CLAUDE_PROJECT_DIR', 'not set')}\n")
+            f.write(f"ENV - CLAUDE_PLUGIN_ROOT: {os.environ.get('CLAUDE_PLUGIN_ROOT', 'not set')}\n")
+            f.write(f"CWD: {os.getcwd()}\n")
+            f.write(f"{'='*60}\n\n")
+
         config = load_config(project_dir)
         notifier = CompletionNotifier(project_dir, config)
         _, message = notifier.send_notifications()
@@ -269,6 +277,17 @@ def main():
         sys.exit(0)
 
     except Exception as e:
+        # Log exception to file
+        try:
+            import traceback
+            project_dir = Path(os.environ.get('CLAUDE_PROJECT_DIR', os.getcwd()))
+            log_file = project_dir / '.claude' / 'hook-debug.log'
+            with open(log_file, 'a') as f:
+                f.write(f"ERROR: {str(e)}\n")
+                f.write(traceback.format_exc())
+                f.write("\n")
+        except Exception:
+            pass
         print(json.dumps({"systemMessage": f"⚠ Notification error: {str(e)}", "suppressOutput": False}))
         sys.exit(0)
 
