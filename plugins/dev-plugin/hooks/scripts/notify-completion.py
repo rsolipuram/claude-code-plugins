@@ -128,12 +128,12 @@ class CompletionNotifier:
         if isinstance(notif_config, bool):
             if not notif_config:
                 return True, "Notifications disabled"
-            # If True, use default config
+            # If True, use default config (sound only, no speech)
             notif_config = {
                 'enabled': True,
-                'audio': {'mode': 'mixed', 'sound_library': '~/.claude/audio'},
-                'completion': {'enabled': True, 'sound': True, 'tts': True, 'contextual_voice': True},
-                'tts': {'enabled': True, 'timeout': 30, 'rate_adjustment': 0}
+                'audio': {'mode': 'sound_only', 'sound_library': '~/.claude/audio'},
+                'completion': {'enabled': True, 'sound': True, 'tts': False, 'contextual_voice': False},
+                'tts': {'enabled': False, 'timeout': 30, 'rate_adjustment': 0}
             }
 
         if not notif_config.get('enabled', True):
@@ -218,17 +218,17 @@ def load_config(project_dir: Path) -> Dict:
         'notifications': {
             'enabled': True,
             'audio': {
-                'mode': 'mixed',
+                'mode': 'sound_only',
                 'sound_library': '~/.claude/audio'
             },
             'completion': {
                 'enabled': True,
                 'sound': True,
-                'tts': True,
-                'contextual_voice': True
+                'tts': False,
+                'contextual_voice': False
             },
             'tts': {
-                'enabled': True,
+                'enabled': False,
                 'timeout': 30,
                 'rate_adjustment': 0
             }
