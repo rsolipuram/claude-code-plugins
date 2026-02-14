@@ -119,13 +119,6 @@ class ObservabilityTracker:
                 secret_key=sk,
                 host=host
             )
-            
-            # Log client state
-            self._debug_log('ClientState', {
-                'enabled': getattr(self.langfuse_client, 'enabled', 'unknown'),
-                'has_trace_attr': hasattr(self.langfuse_client, 'trace'),
-                'class': str(type(self.langfuse_client))
-            })
                 
         except ImportError as e:
             self._debug_log('ConnectError', {'error': f'langfuse module not found: {str(e)}'})
