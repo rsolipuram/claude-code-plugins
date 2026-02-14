@@ -106,9 +106,11 @@ class CompletionNotifier:
         }
 
         # Determine success based on changes
+        # NOTE: All completion events should use 'success' category for sounds
+        # The voice profile can vary, but the sound should always be from success/
         if summary['total_changes'] == 0:
             context['voice_profile'] = 'neutral'
-            context['sound_category'] = 'notify'
+            context['sound_category'] = 'success'  # Fixed: use success sounds even for no changes
         elif summary['files_deleted']:
             # Deletions might be intentional, but use cautious voice
             context['voice_profile'] = 'completion'
