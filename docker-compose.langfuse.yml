@@ -33,7 +33,7 @@ services:
       retries: 15
 
   langfuse-server:
-    image: langfuse/langfuse:3
+    image: langfuse/langfuse:3.22.0
     container_name: langfuse-server
     depends_on:
       langfuse-db:
@@ -49,6 +49,7 @@ services:
       CLICKHOUSE_MIGRATION_URL: clickhouse://default:changeme@clickhouse:9000/langfuse
       CLICKHOUSE_USER: default
       CLICKHOUSE_PASSWORD: changeme
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
       NEXTAUTH_URL: http://localhost:3000
       NEXTAUTH_SECRET: changeme-in-production
       SALT: changeme-in-production
