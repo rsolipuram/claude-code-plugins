@@ -271,9 +271,25 @@ def download_langfuse_compose(target_dir: Path) -> bool:
 
     try:
         log(f"Downloading Langfuse docker-compose.yml...")
-        urllib.request.urlretrieve(url, compose_file)
-        log("Downloaded docker-compose.yml", prefix="✓")
-        return True
+
+        # Use curl instead of urllib to avoid SSL certificate issues on macOS
+        result = subprocess.run(
+            ['curl', '-sSL', '-o', str(compose_file), url],
+            capture_output=True,
+            timeout=30
+        )
+
+        if result.returncode == 0 and compose_file.exists():
+            log("Downloaded docker-compose.yml", prefix="✓")
+            return True
+        else:
+            error_msg = result.stderr.decode() if result.stderr else "Download failed"
+            log(f"Failed to download docker-compose.yml: {error_msg}", prefix="✗")
+            return False
+
+    except FileNotFoundError:
+        log("curl not found. Install curl or download manually.", prefix="✗")
+        return False
     except Exception as e:
         log(f"Failed to download docker-compose.yml: {e}", prefix="✗")
         return False
