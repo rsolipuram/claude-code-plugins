@@ -159,6 +159,7 @@ open http://localhost:3000
   - Path pattern: `~/.claude/projects/<project-id>/transcript.jsonl`
   - Find latest: `find ~/.claude/projects/ -name transcript.jsonl -type f -exec stat -f '%m %N' {} + | sort -rn | head -1`
   - Parse JSONL: Each line is a JSON object with `type`, `content`, `tool_name`, etc.
+  - Reference implementation: `plugins/dev-plugin/hooks/scripts/claude-md-async.py` shows `find_latest_transcript()` and `parse_transcript()` helper functions
 
 ## Key Files
 
