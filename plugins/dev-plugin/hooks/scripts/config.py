@@ -135,7 +135,6 @@ def get_default_config() -> Dict:
             'debug': False,
             'langfuse': {
                 'enabled': False,
-                'auto_setup': False,
                 'auto_start': False,
                 'host': 'http://localhost:3000',
                 'public_key': '',

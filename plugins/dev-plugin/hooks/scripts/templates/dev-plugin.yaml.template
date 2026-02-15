@@ -14,7 +14,6 @@ observability:
 
   langfuse:
     enabled: false     # Send traces to Langfuse for visualization
-    auto_setup: false  # Auto-install Langfuse from scratch (git clone, docker, etc.)
     auto_start: false  # Auto-start Langfuse docker if already installed
 
     # Connection settings - use environment variables for secrets!

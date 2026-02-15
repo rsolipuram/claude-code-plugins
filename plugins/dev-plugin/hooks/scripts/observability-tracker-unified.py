@@ -68,13 +68,8 @@ class ObservabilityTracker:
                             "suppressOutput": False
                         }
             else:
-                # Spawn async setup if auto_setup enabled
-                if self.langfuse_config.get('auto_setup', False):
-                    self._spawn_async_setup()
-                    return {
-                        "systemMessage": f"📊 Session tracking: {self.session_id[:8]} (Langfuse setup running in background)",
-                        "suppressOutput": False
-                    }
+                # Langfuse not available - run 'claude --init' to set up
+                pass
                 elif self.langfuse_config.get('auto_start', False):
                     # Just try to start if already installed
                     self._try_start_langfuse()
@@ -160,16 +155,6 @@ class ObservabilityTracker:
             self._debug_log('TraceGetError', {'error': str(e)})
             return None
 
-    def _spawn_async_setup(self) -> None:
-        """Spawn background Langfuse setup process (non-blocking)."""
-        setup_script = Path(__file__).parent / 'langfuse-setup.py'
-        if setup_script.exists():
-            subprocess.Popen(
-                ['uv', 'run', '--quiet', str(setup_script)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                cwd=self.project_dir
-            )
 
     def _try_start_langfuse(self) -> bool:
         """Try to start Langfuse if installed (quick attempt)."""
