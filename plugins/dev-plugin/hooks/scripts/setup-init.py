@@ -262,36 +262,25 @@ def setup_dependencies() -> Tuple[bool, List[str], List[str]]:
     return len(failed) == 0, installed, failed
 
 
-def download_langfuse_compose(target_dir: Path) -> bool:
-    """Download official docker-compose.yml from GitHub."""
-    url = "https://raw.githubusercontent.com/langfuse/langfuse/main/docker-compose.yml"
+def copy_langfuse_compose(target_dir: Path) -> bool:
+    """Copy bundled docker-compose.yml from plugin templates."""
+    plugin_root = get_plugin_root()
+    template_file = plugin_root / "hooks" / "scripts" / "templates" / "langfuse-docker-compose.yml"
     compose_file = target_dir / "docker-compose.yml"
 
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    try:
-        log(f"Downloading Langfuse docker-compose.yml...")
-
-        # Use curl instead of urllib to avoid SSL certificate issues on macOS
-        result = subprocess.run(
-            ['curl', '-sSL', '-o', str(compose_file), url],
-            capture_output=True,
-            timeout=30
-        )
-
-        if result.returncode == 0 and compose_file.exists():
-            log("Downloaded docker-compose.yml", prefix="✓")
-            return True
-        else:
-            error_msg = result.stderr.decode() if result.stderr else "Download failed"
-            log(f"Failed to download docker-compose.yml: {error_msg}", prefix="✗")
-            return False
-
-    except FileNotFoundError:
-        log("curl not found. Install curl or download manually.", prefix="✗")
+    if not template_file.exists():
+        log(f"Bundled docker-compose.yml not found at {template_file}", prefix="✗")
         return False
+
+    try:
+        log(f"Copying bundled Langfuse docker-compose.yml...")
+        shutil.copy(template_file, compose_file)
+        log("Copied docker-compose.yml", prefix="✓")
+        return True
     except Exception as e:
-        log(f"Failed to download docker-compose.yml: {e}", prefix="✗")
+        log(f"Failed to copy docker-compose.yml: {e}", prefix="✗")
         return False
 
 
@@ -340,9 +329,9 @@ def start_langfuse(langfuse_dir: Path) -> bool:
     """Start Langfuse Docker services."""
     log("Starting Langfuse Docker services...")
 
-    # Download compose file if missing
+    # Copy bundled compose file if missing
     if not (langfuse_dir / "docker-compose.yml").exists():
-        if not download_langfuse_compose(langfuse_dir):
+        if not copy_langfuse_compose(langfuse_dir):
             return False
 
     # Generate .env if missing
