@@ -98,19 +98,149 @@ def check_dependency_installed(package: str) -> bool:
         return False
 
 
+def get_global_config_dir() -> Path:
+    """Get stable global configuration directory (NOT cache)."""
+    return Path.home() / '.claude' / 'plugins' / 'dev-plugin'
+
+
+def detect_existing_configs() -> Dict[str, bool]:
+    """
+    Check what config files already exist.
+
+    Returns:
+        Dictionary with existence flags for each config location
+    """
+    project_root = get_project_root()
+    global_dir = get_global_config_dir()
+
+    return {
+        'global_yaml': (global_dir / 'dev-plugin.yaml').exists(),
+        'global_env': (global_dir / '.env').exists(),
+        'project_yaml': (project_root / '.claude' / 'dev-plugin.yaml').exists(),
+        'project_env': (project_root / '.claude' / '.env').exists(),
+    }
+
+
+def validate_config_locations() -> List[str]:
+    """
+    Check for config files in wrong locations and return warnings.
+
+    Returns:
+        List of warning messages for misplaced configs
+    """
+    warnings = []
+
+    # Check for config in cache directory (will be lost on updates)
+    cache_base = Path.home() / '.claude' / 'plugins' / 'cache'
+    if cache_base.exists():
+        for cache_dir in cache_base.glob('dev-plugin*'):
+            yaml_in_cache = cache_dir / 'dev-plugin.yaml'
+            env_in_cache = cache_dir / '.env'
+
+            if yaml_in_cache.exists():
+                warnings.append(
+                    f"⚠️  Config found in cache: {yaml_in_cache}\n"
+                    f"   This will be WIPED on plugin updates!\n"
+                    f"   Move to: ~/.claude/plugins/dev-plugin/dev-plugin.yaml"
+                )
+
+            if env_in_cache.exists():
+                warnings.append(
+                    f"⚠️  Environment file found in cache: {env_in_cache}\n"
+                    f"   This will be WIPED on plugin updates!\n"
+                    f"   Move to: ~/.claude/plugins/dev-plugin/.env"
+                )
+
+    return warnings
+
+
+def prompt_setup_scope(existing: Dict[str, bool]) -> str:
+    """
+    Prompt user for setup scope based on existing configuration.
+
+    Args:
+        existing: Dict with existence flags for configs
+
+    Returns:
+        'global', 'project', or 'both'
+    """
+    # Smart prompting based on what already exists
+    if existing['global_yaml'] and existing['global_env']:
+        if existing['project_yaml']:
+            log("Both global and project configs already exist.", prefix="ℹ")
+            return 'skip'
+        else:
+            log("Global config exists. Project config missing.", prefix="ℹ")
+            print("\nWould you like to:", file=sys.stderr)
+            print("  1. Keep global only (recommended)", file=sys.stderr)
+            print("  2. Add project overrides", file=sys.stderr)
+            choice = input("Choose [1/2]: ").strip() or "1"
+            return 'project' if choice == "2" else 'skip'
+
+    elif existing['project_yaml']:
+        log("Project config exists. Global config missing.", prefix="ℹ")
+        print("\nWould you like to:", file=sys.stderr)
+        print("  1. Keep project only", file=sys.stderr)
+        print("  2. Migrate to global (recommended)", file=sys.stderr)
+        print("  3. Add global + keep project overrides", file=sys.stderr)
+        choice = input("Choose [1/2/3]: ").strip() or "2"
+        return {'1': 'skip', '2': 'global', '3': 'both'}.get(choice, 'global')
+
+    else:
+        # Fresh install
+        log("No existing configuration found.", prefix="ℹ")
+        print("\nSetup scope:", file=sys.stderr)
+        print("  1. Global (recommended) - One-time setup for all projects", file=sys.stderr)
+        print("  2. Project only - Just this project", file=sys.stderr)
+        print("  3. Both - Global defaults + project overrides", file=sys.stderr)
+        choice = input("Choose [1/2/3]: ").strip() or "1"
+        return {'1': 'global', '2': 'project', '3': 'both'}.get(choice, 'global')
+
+
+def setup_global_config() -> Tuple[bool, List[str]]:
+    """
+    Setup global configuration files in STABLE location.
+
+    CRITICAL: Creates in ~/.claude/plugins/dev-plugin/ (stable)
+              NOT in ~/.claude/plugins/cache/dev-plugin/ (ephemeral)
+
+    Returns:
+        Tuple of (success, list of created files)
+    """
+    created_files = []
+
+    # Get stable global directory (NOT cache)
+    global_dir = get_global_config_dir()
+    global_dir.mkdir(parents=True, exist_ok=True)
+
+    log(f"Setting up global configuration in: {global_dir}")
+
+    # Copy global yaml template
+    config_path = global_dir / "dev-plugin.yaml"
+    if copy_template("dev-plugin.global.yaml.template", config_path):
+        created_files.append(f"~/.claude/plugins/dev-plugin/dev-plugin.yaml")
+
+    # Copy global env template
+    env_path = global_dir / ".env"
+    if copy_template("env.global.template", env_path):
+        created_files.append(f"~/.claude/plugins/dev-plugin/.env")
+
+    return len(created_files) > 0, created_files
+
+
 def setup_config_files(claude_dir: Path) -> Tuple[bool, List[str]]:
-    """Setup configuration files from templates."""
+    """Setup project-level configuration files from templates."""
     created_files = []
 
     # Copy dev-plugin.yaml template
     config_path = claude_dir / "dev-plugin.yaml"
     if copy_template("dev-plugin.yaml.template", config_path):
-        created_files.append("dev-plugin.yaml")
+        created_files.append(".claude/dev-plugin.yaml")
 
     # Copy .env template
     env_path = claude_dir / ".env"
     if copy_template("env.template", env_path):
-        created_files.append(".env")
+        created_files.append(".claude/.env")
 
     return len(created_files) > 0, created_files
 
@@ -309,15 +439,16 @@ def generate_success_message(
     created_files: List[str],
     installed_deps: List[str],
     langfuse_setup: bool = False,
-    langfuse_msg: str = ""
+    langfuse_msg: str = "",
+    scope: str = "project"
 ) -> str:
     """Generate success message for hookSpecificOutput."""
-    lines = ["Development environment initialized."]
+    lines = ["✨ Development environment initialized!"]
 
     if created_files:
         lines.append("\nCreated:")
         for file in created_files:
-            lines.append(f"  - .claude/{file}")
+            lines.append(f"  - {file}")
 
     if installed_deps:
         lines.append("\nInstalled:")
@@ -328,46 +459,107 @@ def generate_success_message(
         lines.append(f"\n{langfuse_msg}")
     else:
         lines.append("\nNext steps:")
-        lines.append("  1. Review .claude/dev-plugin.yaml and customize as needed")
-        lines.append("  2. Start using Claude Code - hooks are now active!")
-        lines.append("\nOptional: Enable Langfuse observability")
-        lines.append("  1. Edit .claude/dev-plugin.yaml:")
-        lines.append("     observability.langfuse.enabled: true")
-        lines.append("  2. Run 'claude --init' again to auto-setup Langfuse Docker")
+
+        if scope == 'global':
+            lines.append("  1. Review ~/.claude/plugins/dev-plugin/dev-plugin.yaml")
+            lines.append("  2. Add Langfuse credentials to ~/.claude/plugins/dev-plugin/.env (optional)")
+            lines.append("  3. Start using Claude Code in ANY project - hooks are now active!")
+            lines.append("\nTo add project-specific overrides:")
+            lines.append("  Create .claude/dev-plugin.yaml in any project")
+
+        elif scope == 'project':
+            lines.append("  1. Review .claude/dev-plugin.yaml and customize as needed")
+            lines.append("  2. Start using Claude Code - hooks are now active!")
+            lines.append("\nTo use this config globally:")
+            lines.append("  Run 'claude --init' and choose 'Migrate to global'")
+
+        elif scope == 'both':
+            lines.append("  1. Global defaults: ~/.claude/plugins/dev-plugin/dev-plugin.yaml")
+            lines.append("  2. Project overrides: .claude/dev-plugin.yaml")
+            lines.append("  3. Start using Claude Code - hooks are now active!")
+
+        if scope in ['global', 'both']:
+            lines.append("\nOptional: Enable Langfuse observability")
+            lines.append("  1. Edit ~/.claude/plugins/dev-plugin/dev-plugin.yaml:")
+            lines.append("     observability.langfuse.enabled: true")
+            lines.append("  2. Add credentials to ~/.claude/plugins/dev-plugin/.env")
+            lines.append("  3. Run 'claude --init' again to auto-setup Langfuse Docker")
 
     return "\n".join(lines)
 
 
 def main() -> int:
-    """Main setup logic."""
+    """Main setup logic with global/project/both support."""
     try:
         project_root = get_project_root()
-        log(f"Setting up dev-plugin in: {project_root}")
+        log(f"🚀 Initializing dev-plugin")
+        log(f"Project: {project_root}")
 
-        # Step 1: Create .claude directory
-        claude_dir = create_claude_directory(project_root)
+        # Step 1: Check for misplaced configs
+        config_warnings = validate_config_locations()
+        if config_warnings:
+            for warning in config_warnings:
+                log(warning, prefix="⚠")
+            log("Fix these issues before proceeding.", prefix="⚠")
 
-        # Step 2: Setup config files
-        config_success, created_files = setup_config_files(claude_dir)
+        # Step 2: Detect existing configs
+        existing = detect_existing_configs()
 
-        # Step 3: Install dependencies
-        deps_success, installed_deps, failed_deps = setup_dependencies()
+        # Step 3: Prompt for setup scope
+        scope = prompt_setup_scope(existing)
 
-        # Check for critical failures
-        if 'pyyaml' in failed_deps:
-            error_output = {
-                "decision": "block",
-                "reason": "PyYAML installation failed",
-                "systemMessage": "⛔ Setup failed: PyYAML is required but installation failed. Install manually: pip install pyyaml"
-            }
-            print(json.dumps(error_output), file=sys.stderr)
-            return 2
+        if scope == 'skip':
+            log("Configuration already complete.", prefix="✓")
+            # Still check if Langfuse needs setup even though config exists
+            created_files = []
+            installed_deps = []
 
-        # Step 4: Setup Langfuse (if enabled)
+        else:
+            # Track what we create
+            created_files = []
+
+            # Step 4: Setup based on scope
+            if scope in ['global', 'both']:
+                log("Setting up global configuration...")
+                global_success, global_files = setup_global_config()
+                if global_success:
+                    created_files.extend(global_files)
+
+            if scope in ['project', 'both']:
+                log("Setting up project configuration...")
+                claude_dir = create_claude_directory(project_root)
+                project_success, project_files = setup_config_files(claude_dir)
+                if project_success:
+                    created_files.extend(project_files)
+
+            # Step 5: Install dependencies (only if not already installed)
+            deps_success, installed_deps, failed_deps = setup_dependencies()
+
+            # Check for critical failures
+            if 'pyyaml' in failed_deps:
+                error_output = {
+                    "decision": "block",
+                    "reason": "PyYAML installation failed",
+                    "systemMessage": "⛔ Setup failed: PyYAML is required but installation failed. Install manually: pip install pyyaml"
+                }
+                print(json.dumps(error_output), file=sys.stderr)
+                return 2
+
+        # Step 6: Setup Langfuse (if enabled in final merged config)
         langfuse_setup_success = False
         langfuse_message = ""
 
-        if check_langfuse_enabled(claude_dir):
+        # Check if Langfuse is enabled (check global or project config)
+        global_dir = get_global_config_dir()
+        claude_dir = project_root / '.claude'
+
+        langfuse_enabled = False
+        if (global_dir / 'dev-plugin.yaml').exists():
+            langfuse_enabled = check_langfuse_enabled(global_dir)
+        if not langfuse_enabled and (claude_dir / 'dev-plugin.yaml').exists():
+            langfuse_enabled = check_langfuse_enabled(claude_dir)
+
+        if langfuse_enabled:
             log("Langfuse enabled in config, setting up Docker...")
 
             # Install langfuse dependency if not already installed
@@ -387,7 +579,6 @@ def main() -> int:
                     "suppressOutput": False
                 }
                 print(json.dumps(warning_output))
-                # Continue with success message but note the warning
                 langfuse_message = f"⚠ Langfuse setup failed: {langfuse_message}\n\nYou can try again by running 'claude --init' or set up manually."
 
         # Generate success message
@@ -395,7 +586,8 @@ def main() -> int:
             created_files,
             installed_deps,
             langfuse_setup_success,
-            langfuse_message
+            langfuse_message,
+            scope
         )
 
         # Output JSON for Claude Code

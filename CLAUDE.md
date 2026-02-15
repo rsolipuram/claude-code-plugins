@@ -40,27 +40,54 @@ Development automation plugin providing code quality, git automation, observabil
 
 **Quick initialization** (recommended):
 ```bash
-# Automated setup via Setup hook
+# Automated setup with smart prompting
 claude --init
 ```
 
-This creates:
-- `.claude/dev-plugin.yaml` - Configuration
-- `.claude/.env` - Environment variables template
-- Installs dependencies (pyyaml, optionally langfuse)
+**Setup Options:**
+1. **Global (recommended)** - One-time setup for all projects
+   - Creates: `~/.claude/plugins/dev-plugin/dev-plugin.yaml`
+   - Creates: `~/.claude/plugins/dev-plugin/.env`
+   - Works everywhere immediately
 
-**Manual setup**:
-```bash
-# Copy config template
-cp plugins/dev-plugin/dev-plugin.yaml.example .claude/dev-plugin.yaml
+2. **Project only** - Just this project
+   - Creates: `.claude/dev-plugin.yaml`
+   - Creates: `.claude/.env`
 
-# Edit configuration
-vim .claude/dev-plugin.yaml
-```
+3. **Both** - Global defaults + project overrides
+
+**What gets created:**
+- Config file (YAML)
+- Environment file (.env) for secrets
+- Auto-installs dependencies (pyyaml, optionally langfuse)
+
+**IMPORTANT: Configuration Storage**
+- ✅ Global: `~/.claude/plugins/dev-plugin/` (stable, persists)
+- ✅ Project: `.claude/` (stable, persists)
+- ❌ NOT in cache: `~/.claude/plugins/cache/` (ephemeral, wiped on updates)
 
 ### Configuration
 
-Edit `.claude/dev-plugin.yaml`:
+**Configuration Priority** (highest to lowest):
+1. `.claude/dev-plugin.yaml` (project-specific overrides)
+2. `~/.claude/plugins/dev-plugin/dev-plugin.yaml` (global defaults)
+3. Built-in defaults
+
+**Recommended approach:**
+- Set common defaults in global config
+- Override specific settings per-project as needed
+
+Edit global config:
+```bash
+vim ~/.claude/plugins/dev-plugin/dev-plugin.yaml
+```
+
+Edit project config (overrides):
+```bash
+vim .claude/dev-plugin.yaml
+```
+
+**Example configs:**
 
 ```yaml
 enabled: true
@@ -150,7 +177,13 @@ open http://localhost:3000
 
 ## Gotchas
 
+- **Config locations**: NEVER put config in `~/.claude/plugins/cache/` (gets wiped on updates)
+  - ✅ Use: `~/.claude/plugins/dev-plugin/` (global, stable)
+  - ✅ Use: `.claude/` (project, stable)
+  - ❌ NOT: `~/.claude/plugins/cache/dev-plugin/` (ephemeral)
 - **Setup hook**: Only runs on `claude --init` or first session with new plugin
+- **Global vs project**: Global config applies to all projects, project config overrides
+- **Setup modes**: Choose global (one-time), project (per-project), or both (defaults + overrides)
 - **CLAUDE.md updates**: Conditional - only if valuable learnings exist
 - **Langfuse auto-start**: Requires `compose_path` set in config
 - **Quality checks**: Blocking - session won't end if type errors exist

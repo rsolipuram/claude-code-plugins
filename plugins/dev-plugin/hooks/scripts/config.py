@@ -2,12 +2,59 @@
 """
 Centralized configuration loader for dev-plugin.
 
-Supports multiple config formats with priority:
-1. .claude/dev-plugin.yaml (new format)
-2. .claude/dev-plugin.local.md (legacy format with YAML frontmatter)
-3. ~/.claude/plugins/dev-plugin/dev-plugin.yaml (global config)
+IMPORTANT: Plugin Caching vs Config Storage
+===========================================
 
-Automatically loads secrets from .env files and supports environment variable expansion.
+Plugin Code (Ephemeral):
+  ~/.claude/plugins/cache/dev-plugin@version/
+  - Managed by Claude Code (wiped on updates)
+  - Where plugin code runs from
+  - ${CLAUDE_PLUGIN_ROOT} points here
+
+Config Storage (Persistent):
+  ~/.claude/plugins/dev-plugin/
+  - User-managed (persists across updates)
+  - Where this loader reads from
+  - Uses absolute paths (Path.home())
+
+This separation ensures your configuration survives plugin updates.
+
+Configuration Priority
+======================
+
+Highest to lowest priority:
+1. .claude/dev-plugin.yaml (project-specific)
+2. .claude/dev-plugin.local.md (project legacy)
+3. ~/.claude/plugins/dev-plugin/dev-plugin.yaml (global - STABLE location)
+4. ~/.claude/plugins/dev-plugin/settings.local.md (global legacy)
+5. Built-in defaults
+
+Path Traversal Limitation Clarification
+=======================================
+
+The plugin cache documentation warns about path traversal limitations,
+but this applies ONLY to:
+  - Plugin manifest references (plugin.json component paths)
+  - Files that need to be COPIED during installation
+  - Relative paths that escape the plugin directory
+
+It does NOT restrict:
+  - Runtime Python code using absolute paths (this file)
+  - Normal filesystem I/O operations
+  - Reading/writing files outside the cache
+
+This loader uses absolute paths (Path.home()) which is explicitly allowed
+and is standard practice for accessing configuration (similar to ~/.config/).
+
+Environment Variables
+=====================
+
+Loads from:
+1. ~/.claude/plugins/dev-plugin/.env (global)
+2. .claude/.env (project - overrides global)
+3. System environment variables
+
+Supports ${VARIABLE_NAME} expansion in YAML values.
 """
 
 import os
@@ -188,25 +235,33 @@ def get_default_config() -> Dict:
 
 def load_config(project_dir: Path) -> Dict:
     """
-    Load configuration with two-tier priority system.
+    Load configuration with multi-tier priority system.
+
+    CRITICAL: Global config is read from STABLE location, NOT cache:
+      ✅ ~/.claude/plugins/dev-plugin/dev-plugin.yaml (stable, persists)
+      ❌ ~/.claude/plugins/cache/dev-plugin/... (ephemeral, wiped on updates)
+
+    This uses absolute paths (Path.home()) which is allowed - the path
+    traversal limitation only applies to plugin manifest references, not
+    runtime file I/O operations.
 
     Priority (highest to lowest):
     1. Project-level YAML: .claude/dev-plugin.yaml
     2. Project-level legacy: .claude/dev-plugin.local.md
-    3. Global YAML: ~/.claude/plugins/dev-plugin/dev-plugin.yaml
-    4. Global legacy: ~/.claude/plugins/dev-plugin/settings.local.md
-    5. Default configuration
+    3. Global YAML: ~/.claude/plugins/dev-plugin/dev-plugin.yaml (STABLE)
+    4. Global legacy: ~/.claude/plugins/dev-plugin/settings.local.md (STABLE)
+    5. Default configuration (hardcoded)
 
-    Also loads environment variables from .env files:
-    - .claude/.env (project-level)
-    - ~/.claude/plugins/dev-plugin/.env (global)
-    - System environment variables
+    Environment variables (.env files):
+    1. ~/.claude/plugins/dev-plugin/.env (global, STABLE)
+    2. .claude/.env (project - overrides global)
+    3. System environment variables
 
     Args:
         project_dir: Path to the project directory
 
     Returns:
-        Merged configuration dictionary
+        Merged configuration dictionary with expanded environment variables
     """
     # Start with defaults
     config = get_default_config()

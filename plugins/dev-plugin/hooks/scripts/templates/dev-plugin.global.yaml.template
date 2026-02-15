@@ -1,0 +1,177 @@
+# dev-plugin Global Configuration
+# Location: ~/.claude/plugins/dev-plugin/dev-plugin.yaml
+#
+# ═══════════════════════════════════════════════════════════════
+# IMPORTANT: This is your GLOBAL configuration
+# ═══════════════════════════════════════════════════════════════
+#
+# This configuration applies to ALL projects by default.
+# To override for specific projects, create .claude/dev-plugin.yaml
+#
+# Configuration Priority (highest to lowest):
+#   1. .claude/dev-plugin.yaml (project-specific overrides)
+#   2. ~/.claude/plugins/dev-plugin/dev-plugin.yaml (this file)
+#   3. Built-in defaults
+#
+# Storage Location:
+#   ✅ This file: ~/.claude/plugins/dev-plugin/ (stable, persists)
+#   ❌ NOT in:   ~/.claude/plugins/cache/dev-plugin/ (ephemeral, wiped on updates)
+#
+# Secrets:
+#   Store API keys and secrets in ~/.claude/plugins/dev-plugin/.env
+#   Reference them here using ${VARIABLE_NAME} syntax
+#
+
+# ═══════════════════════════════════════════════════════════════
+# MASTER CONTROL
+# ═══════════════════════════════════════════════════════════════
+enabled: true
+
+# ═══════════════════════════════════════════════════════════════
+# OBSERVABILITY TRACKING
+# ═══════════════════════════════════════════════════════════════
+observability:
+  # Track sessions locally to .claude/observability/
+  enabled: true
+
+  # Enable debug logging for troubleshooting
+  debug: false
+
+  langfuse:
+    # Send traces to Langfuse for visualization
+    # Set to true after configuring credentials in .env
+    enabled: false
+
+    # Auto-start Langfuse docker if compose_path is set
+    auto_start: false
+
+    # Connection settings - NEVER hardcode secrets here!
+    # Set these in ~/.claude/plugins/dev-plugin/.env
+    host: ${LANGFUSE_HOST}
+    public_key: ${LANGFUSE_PUBLIC_KEY}
+    secret_key: ${LANGFUSE_SECRET_KEY}
+
+    # Optional metadata
+    userId: ${USER}                    # Track by username
+    version: "1.0.0"                   # Plugin version for tracking
+    tags: ["dev", "local"]             # Categorize traces
+
+    # Path to docker-compose.yml (for auto_start)
+    # Leave empty for global config - setup uses ~/.langfuse/ by default
+    # Only set this in project configs if you need a different Langfuse instance
+    compose_path: ""
+
+# ═══════════════════════════════════════════════════════════════
+# CODE QUALITY CHECKS
+# ═══════════════════════════════════════════════════════════════
+quality_check:
+  # Run type checks at session end
+  enabled: true
+
+  # Language-specific commands (auto-detected via indicator files)
+  typescript:
+    enabled: true
+    command: "npx tsc --noEmit"
+
+  python:
+    enabled: true
+    command: "mypy ."
+
+  go:
+    enabled: true
+    command: "go vet ./..."
+
+  rust:
+    enabled: true
+    command: "cargo check"
+
+# ═══════════════════════════════════════════════════════════════
+# AUTO-FORMATTING
+# ═══════════════════════════════════════════════════════════════
+autoformat:
+  # Format files after edits
+  enabled: true
+
+  # Language-specific formatters
+  typescript:
+    command: "npx prettier --write"
+
+  javascript:
+    command: "npx prettier --write"
+
+  python:
+    command: "black"
+
+# ═══════════════════════════════════════════════════════════════
+# GIT CHECKPOINTING
+# ═══════════════════════════════════════════════════════════════
+git_checkpoint:
+  # Auto-commit at session end with AI-generated summary
+  enabled: true
+
+  # Commit message prefix
+  prefix: "Auto-checkpoint:"
+
+  # Include Claude attribution
+  co_author: "Claude Sonnet 4.5 <noreply@anthropic.com>"
+
+# ═══════════════════════════════════════════════════════════════
+# NOTIFICATIONS
+# ═══════════════════════════════════════════════════════════════
+notifications:
+  # Show notifications on session completion
+  enabled: true
+
+  # macOS notification center alerts
+  mac_notification: true
+
+  # Use dialog boxes (more intrusive)
+  use_dialog: false
+
+  # Text-to-speech announcements
+  tts: false
+
+  # Audio notifications
+  audio:
+    enabled: false
+    sound_only: true          # No TTS, just sound effects
+
+# ═══════════════════════════════════════════════════════════════
+# CLAUDE.MD MANAGEMENT
+# ═══════════════════════════════════════════════════════════════
+claude_md_management:
+  # Create CLAUDE.md if missing
+  auto_init: true
+
+  # Update CLAUDE.md with session learnings
+  auto_update: true
+
+  # Minimum tool calls before triggering update
+  update_threshold: 3
+
+  # Max size in bytes (10KB)
+  max_file_size: 10240
+
+  # Create .bak file before updating
+  backup_before_update: true
+
+# ═══════════════════════════════════════════════════════════════
+# PROJECT-SPECIFIC OVERRIDES
+# ═══════════════════════════════════════════════════════════════
+#
+# To override settings for a specific project, create:
+#   .claude/dev-plugin.yaml
+#
+# Example project override (.claude/dev-plugin.yaml):
+#
+#   # Only include what you want to override
+#   observability:
+#     langfuse:
+#       tags: ["client-acme", "production"]
+#       compose_path: /path/to/project/langfuse/docker-compose.yml
+#
+#   notifications:
+#     tts: true  # Enable TTS for this project only
+#
+# All other settings will inherit from this global config.
+#

@@ -82,25 +82,44 @@ claude --plugin-dir /path/to/dev-plugin
 
 ### 2. Initialize with Setup Hook
 
-The dev-plugin includes a **Setup hook** that automates the entire initialization process:
+The dev-plugin includes a **Setup hook** that automates the entire initialization process with intelligent setup flows:
 
 ```bash
 # One command to set up everything
 claude --init
 ```
 
-This will automatically:
-- ✓ Create `.claude/dev-plugin.yaml` with sensible defaults
-- ✓ Create `.claude/.env` template for Langfuse API keys
-- ✓ Install required dependencies (pyyaml)
-- ✓ Install optional dependencies if enabled (langfuse)
-- ✓ Start Langfuse Docker stack if enabled in config
+**Setup Modes:**
+
+1. **Global (Recommended)** - One-time setup for all projects
+   - Creates: `~/.claude/plugins/dev-plugin/dev-plugin.yaml`
+   - Creates: `~/.claude/plugins/dev-plugin/.env`
+   - Works in ALL projects immediately
+   - No per-project setup needed
+
+2. **Project Only** - Just this project
+   - Creates: `.claude/dev-plugin.yaml`
+   - Creates: `.claude/.env`
+   - Only affects current project
+
+3. **Both** - Global defaults + project overrides
+   - Global config for common settings
+   - Project config for specific overrides
 
 **What happens:**
-1. Config files are created from templates (if they don't exist)
-2. PyYAML is installed (required for config loading)
-3. If you've enabled Langfuse in the config, Docker services auto-start
-4. You get clear next steps for finishing setup
+1. Setup detects existing configuration
+2. Smart prompting based on your situation
+3. Config files created from templates
+4. PyYAML installed (required for config loading)
+5. Optional: Langfuse Docker auto-setup if enabled
+6. Clear next steps for completing setup
+
+**IMPORTANT: Configuration Storage**
+
+Configs are stored in **stable locations** (persist across plugin updates):
+- ✅ `~/.claude/plugins/dev-plugin/` (global, stable)
+- ✅ `.claude/` (project, stable)
+- ❌ NOT in `~/.claude/plugins/cache/dev-plugin/` (ephemeral, wiped on updates)
 
 **Enable Langfuse (optional):**
 
@@ -359,21 +378,41 @@ enabled: true
 
 ---
 
-### Project vs Global Configuration
+### Configuration Storage & Priority
 
-**Project-level** (`.claude/` in your project):
-- Configuration: `.claude/dev-plugin.yaml`
+**CRITICAL: Cache vs Stable Locations**
+
+The plugin code runs from a **cache** directory that gets wiped on updates:
+- Cache: `~/.claude/plugins/cache/dev-plugin@version/` (ephemeral)
+- Config is stored OUTSIDE the cache in **stable** locations (persist)
+
+**Global Configuration** (`~/.claude/plugins/dev-plugin/`):
+- Location: `~/.claude/plugins/dev-plugin/dev-plugin.yaml`
+- Secrets: `~/.claude/plugins/dev-plugin/.env`
+- Scope: All projects (defaults)
+- Persists: Across plugin updates ✅
+- Recommended: For most users
+
+**Project Configuration** (`.claude/` in your project):
+- Location: `.claude/dev-plugin.yaml`
 - Secrets: `.claude/.env`
-- Applies only to this project
-- Overrides global settings
+- Scope: Only this project
+- Persists: Across plugin updates ✅
+- Use for: Project-specific overrides
 
-**Global** (`~/.claude/plugins/dev-plugin/`):
-- Configuration: `dev-plugin.yaml`
-- Secrets: `.env`
-- Applies to all projects as defaults
-- Used as fallback
+**Configuration Priority** (highest to lowest):
+1. `.claude/dev-plugin.yaml` (project-specific)
+2. `.claude/dev-plugin.local.md` (project legacy)
+3. `~/.claude/plugins/dev-plugin/dev-plugin.yaml` (global)
+4. `~/.claude/plugins/dev-plugin/settings.local.md` (global legacy)
+5. Built-in defaults
 
-**Priority**: Project settings deep-merge with and override global settings.
+**Environment Variables Priority**:
+1. `.claude/.env` (project - overrides global)
+2. `~/.claude/plugins/dev-plugin/.env` (global)
+3. System environment variables
+
+**How Merging Works**: Project settings deep-merge with global. Only override what you need in project configs.
 
 ---
 
@@ -828,6 +867,74 @@ The plugin automatically detects project types by looking for indicator files:
 **Smart Behavior**: If a project has multiple languages (e.g., TypeScript frontend + Python backend), the plugin detects and checks all of them.
 
 ## Troubleshooting
+
+### Configuration Location Issues
+
+**Problem**: Config lost after plugin update
+
+**Cause**: Config was created in cache directory (gets wiped on updates)
+
+**Solution**:
+1. Check if config is in wrong location:
+   ```bash
+   # WRONG - ephemeral cache
+   ls ~/.claude/plugins/cache/dev-plugin*/dev-plugin.yaml
+
+   # RIGHT - stable location
+   ls ~/.claude/plugins/dev-plugin/dev-plugin.yaml
+   ```
+
+2. Move config to stable location:
+   ```bash
+   # Create stable directory
+   mkdir -p ~/.claude/plugins/dev-plugin
+
+   # Move config from cache
+   cp ~/.claude/plugins/cache/dev-plugin*/dev-plugin.yaml \
+      ~/.claude/plugins/dev-plugin/
+
+   # Move secrets
+   cp ~/.claude/plugins/cache/dev-plugin*/.env \
+      ~/.claude/plugins/dev-plugin/
+   ```
+
+3. Re-run setup:
+   ```bash
+   claude --init
+   ```
+
+**Prevention**: Setup hook now validates config locations and warns if files are in cache.
+
+---
+
+**Problem**: Config not loading or using wrong values
+
+**Cause**: Multiple config files with conflicting priority
+
+**Solution**: Check all config locations:
+```bash
+# Check what configs exist
+ls -la .claude/dev-plugin.yaml                      # Project
+ls -la ~/.claude/plugins/dev-plugin/dev-plugin.yaml # Global
+
+# View effective config (requires Python)
+cd /path/to/project
+python3 -c "
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.home() / '.claude/plugins/dev-plugin/hooks/scripts'))
+from config import load_config
+import json
+print(json.dumps(load_config(Path.cwd()), indent=2))
+"
+```
+
+**Priority reminder**:
+1. Project config (.claude/) - highest
+2. Global config (~/.claude/plugins/dev-plugin/)
+3. Defaults
+
+---
 
 ### Dependency Installation Issues
 
