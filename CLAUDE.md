@@ -14,6 +14,9 @@ claude-code-plugins/
       .claude-plugin/    # Plugin manifest
         plugin.json      # Plugin metadata
       hooks/             # Event-driven automation hooks
+        scripts/
+          templates/
+            langfuse-docker-compose.yml  # Bundled Langfuse config
       skills/            # AI-powered skills
         claude-md-manager/  # CLAUDE.md management skill
       setup.sh           # Plugin setup automation
@@ -186,13 +189,15 @@ open http://localhost:3000
 - **Setup modes**: Choose global (one-time), project (per-project), or both (defaults + overrides)
 - **CLAUDE.md updates**: Conditional - only if valuable learnings exist
 - **Langfuse setup locations**:
-  - Docker compose file: `~/.langfuse/docker-compose.yml` (downloaded from GitHub main branch)
+  - Docker compose file: `~/.langfuse/docker-compose.yml` (copied from bundled template)
+  - Bundled template: `plugins/dev-plugin/hooks/scripts/templates/langfuse-docker-compose.yml`
   - Environment file: `~/.langfuse/.env` (auto-generated secrets)
   - Auto-start requires `compose_path` set in config
 - **Langfuse setup troubleshooting**:
-  - SSL errors during setup fixed by using curl instead of urllib (setup-init.py)
-  - Port 5432 conflicts: Check for SSH tunnels (`lsof -i :5432`) before starting
-  - Clean reinstall: Remove `~/.langfuse/` directory and all Docker volumes
+  - Setup uses bundled docker-compose.yml (avoids SSL certificate errors from downloads)
+  - Port conflicts: Check both 5432 and 5433 for SSH tunnels (`lsof -i :5432 :5433`)
+  - Rancher Desktop SSH tunnel often occupies both PostgreSQL ports
+  - Clean reinstall: Remove `~/.langfuse/` directory and all Docker volumes (`docker-compose down -v`)
 - **Quality checks**: Blocking - session won't end if type errors exist
 - **Git checkpoint**: Only commits if files were modified
 - **Async hooks & stdin**: Hooks with `async: true` do NOT receive stdin input. Must read session data from filesystem:
@@ -207,9 +212,11 @@ open http://localhost:3000
 - `plugins/dev-plugin/dev-plugin.yaml.example` - Config template
 - `plugins/dev-plugin/setup.sh` - Automated setup script
 - `plugins/dev-plugin/hooks/` - Event-driven automation
+- `plugins/dev-plugin/hooks/scripts/setup-init.py` - Setup initialization script
+- `plugins/dev-plugin/hooks/scripts/templates/langfuse-docker-compose.yml` - Bundled Langfuse config
 - `plugins/dev-plugin/skills/claude-md-manager/` - CLAUDE.md skill
 
 ---
 
-*Last updated: 2026-02-15*
+*Last updated: 2026-02-15 4:37pm*
 *Managed by claude-md-manager skill. Quality target: 80+/100*
