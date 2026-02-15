@@ -155,7 +155,10 @@ open http://localhost:3000
 - **Langfuse auto-start**: Requires `compose_path` set in config
 - **Quality checks**: Blocking - session won't end if type errors exist
 - **Git checkpoint**: Only commits if files were modified
-- **Async hooks & stdin**: Hooks with `async: true` do NOT receive stdin input. Must read session data from filesystem (`~/.claude/projects/.../transcript.jsonl`) instead of stdin
+- **Async hooks & stdin**: Hooks with `async: true` do NOT receive stdin input. Must read session data from filesystem:
+  - Path pattern: `~/.claude/projects/<project-id>/transcript.jsonl`
+  - Find latest: `find ~/.claude/projects/ -name transcript.jsonl -type f -exec stat -f '%m %N' {} + | sort -rn | head -1`
+  - Parse JSONL: Each line is a JSON object with `type`, `content`, `tool_name`, etc.
 
 ## Key Files
 
