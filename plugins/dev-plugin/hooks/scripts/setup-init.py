@@ -1,0 +1,423 @@
+#!/usr/bin/env python3
+"""
+Setup Hook - Init Mode
+Initializes dev-plugin environment: config files, dependencies, and optional Langfuse.
+Triggered by: claude --init or claude --init-only
+"""
+
+import json
+import os
+import secrets
+import subprocess
+import sys
+import shutil
+import time
+import urllib.request
+from pathlib import Path
+from typing import Dict, List, Tuple
+
+
+def log(message: str, prefix: str = "ℹ") -> None:
+    """Print formatted log message to stderr."""
+    print(f"{prefix} {message}", file=sys.stderr)
+
+
+def get_project_root() -> Path:
+    """Get project root (current working directory)."""
+    return Path.cwd()
+
+
+def get_plugin_root() -> Path:
+    """Get plugin root directory from environment variable."""
+    plugin_root = os.environ.get('CLAUDE_PLUGIN_ROOT')
+    if not plugin_root:
+        log("CLAUDE_PLUGIN_ROOT not set", prefix="⚠")
+        return Path(__file__).parent.parent.parent
+    return Path(plugin_root)
+
+
+def create_claude_directory(project_root: Path) -> Path:
+    """Create .claude directory if it doesn't exist."""
+    claude_dir = project_root / ".claude"
+    claude_dir.mkdir(exist_ok=True)
+    return claude_dir
+
+
+def copy_template(template_name: str, dest_path: Path, force: bool = False) -> bool:
+    """Copy template file to destination if it doesn't exist."""
+    if dest_path.exists() and not force:
+        log(f"Already exists: {dest_path.name}", prefix="⏭")
+        return False
+
+    plugin_root = get_plugin_root()
+    template_path = plugin_root / "hooks" / "scripts" / "templates" / template_name
+
+    if not template_path.exists():
+        log(f"Template not found: {template_path}", prefix="⚠")
+        return False
+
+    try:
+        shutil.copy(template_path, dest_path)
+        log(f"Created: {dest_path.name}", prefix="✓")
+        return True
+    except Exception as e:
+        log(f"Failed to copy template {template_name}: {e}", prefix="✗")
+        return False
+
+
+def install_dependency(package: str) -> bool:
+    """Install Python package using pip."""
+    log(f"Installing {package}...", prefix="⏳")
+    try:
+        result = subprocess.run(
+            [sys.executable, '-m', 'pip', 'install', package, '--quiet'],
+            capture_output=True,
+            timeout=120
+        )
+        if result.returncode == 0:
+            log(f"Installed: {package}", prefix="✓")
+            return True
+        else:
+            log(f"Failed to install {package}: {result.stderr.decode()}", prefix="✗")
+            return False
+    except Exception as e:
+        log(f"Error installing {package}: {e}", prefix="✗")
+        return False
+
+
+def check_dependency_installed(package: str) -> bool:
+    """Check if a Python package is installed."""
+    try:
+        result = subprocess.run(
+            [sys.executable, '-m', 'pip', 'show', package],
+            capture_output=True,
+            timeout=10
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def setup_config_files(claude_dir: Path) -> Tuple[bool, List[str]]:
+    """Setup configuration files from templates."""
+    created_files = []
+
+    # Copy dev-plugin.yaml template
+    config_path = claude_dir / "dev-plugin.yaml"
+    if copy_template("dev-plugin.yaml.template", config_path):
+        created_files.append("dev-plugin.yaml")
+
+    # Copy .env template
+    env_path = claude_dir / ".env"
+    if copy_template("env.template", env_path):
+        created_files.append(".env")
+
+    return len(created_files) > 0, created_files
+
+
+def setup_dependencies() -> Tuple[bool, List[str], List[str]]:
+    """Install required Python dependencies."""
+    installed = []
+    failed = []
+
+    # PyYAML is critical - must be installed
+    if not check_dependency_installed('pyyaml'):
+        if install_dependency('pyyaml'):
+            installed.append('pyyaml')
+        else:
+            failed.append('pyyaml')
+    else:
+        log("Already installed: pyyaml", prefix="⏭")
+
+    return len(failed) == 0, installed, failed
+
+
+def download_langfuse_compose(target_dir: Path) -> bool:
+    """Download official docker-compose.yml from GitHub."""
+    url = "https://raw.githubusercontent.com/langfuse/langfuse/main/docker-compose.yml"
+    compose_file = target_dir / "docker-compose.yml"
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        log(f"Downloading Langfuse docker-compose.yml...")
+        urllib.request.urlretrieve(url, compose_file)
+        log("Downloaded docker-compose.yml", prefix="✓")
+        return True
+    except Exception as e:
+        log(f"Failed to download docker-compose.yml: {e}", prefix="✗")
+        return False
+
+
+def generate_langfuse_env(env_file: Path) -> bool:
+    """Generate complete .env file with all Docker secrets."""
+    postgres_password = secrets.token_hex(20)
+    minio_password = secrets.token_hex(20)
+
+    env_content = f"""# Auto-generated by dev-plugin Setup hook
+# Langfuse Docker Compose Environment Variables
+
+# Core Auth & Encryption
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET={secrets.token_hex(32)}
+SALT={secrets.token_hex(16)}
+ENCRYPTION_KEY={secrets.token_hex(32)}
+
+# PostgreSQL
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD={postgres_password}
+DATABASE_URL=postgresql://postgres:{postgres_password}@postgres:5432/postgres
+
+# ClickHouse
+CLICKHOUSE_USER=clickhouse
+CLICKHOUSE_PASSWORD={secrets.token_hex(20)}
+
+# Redis
+REDIS_AUTH={secrets.token_hex(20)}
+
+# MinIO
+MINIO_ROOT_USER=minio
+MINIO_ROOT_PASSWORD={minio_password}
+"""
+
+    try:
+        env_file.write_text(env_content)
+        env_file.chmod(0o600)  # Secure permissions
+        log("Generated .env with auto-generated secrets", prefix="✓")
+        return True
+    except Exception as e:
+        log(f"Failed to create .env: {e}", prefix="✗")
+        return False
+
+
+def start_langfuse(langfuse_dir: Path) -> bool:
+    """Start Langfuse Docker services."""
+    log("Starting Langfuse Docker services...")
+
+    # Download compose file if missing
+    if not (langfuse_dir / "docker-compose.yml").exists():
+        if not download_langfuse_compose(langfuse_dir):
+            return False
+
+    # Generate .env if missing
+    env_file = langfuse_dir / ".env"
+    if not env_file.exists():
+        if not generate_langfuse_env(env_file):
+            return False
+
+    # Start Docker Compose
+    try:
+        result = subprocess.run(
+            ["docker-compose", "up", "-d"],
+            cwd=langfuse_dir,
+            capture_output=True,
+            timeout=120
+        )
+
+        if result.returncode == 0:
+            log("Docker services started", prefix="✓")
+            return True
+        else:
+            log(f"Failed to start Docker: {result.stderr.decode()}", prefix="✗")
+            return False
+    except FileNotFoundError:
+        log("Docker Compose not found. Install Docker first.", prefix="✗")
+        return False
+    except Exception as e:
+        log(f"Error starting Docker: {e}", prefix="✗")
+        return False
+
+
+def wait_for_langfuse_health(max_attempts: int = 60, delay: int = 5) -> bool:
+    """Poll health endpoint until ready (5 minutes max)."""
+    log("Waiting for Langfuse to be ready (up to 5 minutes)...")
+
+    for attempt in range(max_attempts):
+        try:
+            req = urllib.request.Request('http://localhost:3000/api/public/health')
+            with urllib.request.urlopen(req, timeout=5) as response:
+                if response.status == 200:
+                    log("Langfuse is ready!", prefix="✓")
+                    return True
+        except:
+            pass
+
+        if attempt < max_attempts - 1:  # Don't sleep on last attempt
+            time.sleep(delay)
+
+    log("Timeout waiting for Langfuse health check", prefix="✗")
+    return False
+
+
+def check_langfuse_enabled(claude_dir: Path) -> bool:
+    """Check if Langfuse is enabled in config."""
+    config_path = claude_dir / "dev-plugin.yaml"
+    if not config_path.exists():
+        return False
+
+    try:
+        import yaml
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+
+        return (
+            config.get('observability', {})
+            .get('langfuse', {})
+            .get('enabled', False)
+        )
+    except ImportError:
+        log("PyYAML not available, skipping Langfuse check", prefix="⚠")
+        return False
+    except Exception as e:
+        log(f"Error reading config: {e}", prefix="⚠")
+        return False
+
+
+def setup_langfuse() -> Tuple[bool, str]:
+    """Setup Langfuse Docker stack."""
+    langfuse_dir = Path.home() / ".langfuse"
+
+    # Start Langfuse
+    if not start_langfuse(langfuse_dir):
+        return False, "Failed to start Langfuse Docker services"
+
+    # Wait for health check
+    if not wait_for_langfuse_health():
+        return False, "Langfuse started but health check timed out"
+
+    instructions = """
+Langfuse Docker Services Started:
+  - langfuse-web (http://localhost:3000)
+  - langfuse-worker
+  - postgres, clickhouse, redis, minio
+
+Next steps to enable observability:
+  1. Visit http://localhost:3000 to create admin account
+  2. Go to Settings → API Keys to generate:
+     - Public Key (pk-lf-...)
+     - Secret Key (sk-lf-...)
+  3. Update .claude/.env:
+     LANGFUSE_PUBLIC_KEY=pk-lf-YOUR-KEY
+     LANGFUSE_SECRET_KEY=sk-lf-YOUR-KEY
+  4. Restart claude to begin tracking sessions
+"""
+
+    return True, instructions
+
+
+def generate_success_message(
+    created_files: List[str],
+    installed_deps: List[str],
+    langfuse_setup: bool = False,
+    langfuse_msg: str = ""
+) -> str:
+    """Generate success message for hookSpecificOutput."""
+    lines = ["Development environment initialized."]
+
+    if created_files:
+        lines.append("\nCreated:")
+        for file in created_files:
+            lines.append(f"  - .claude/{file}")
+
+    if installed_deps:
+        lines.append("\nInstalled:")
+        for dep in installed_deps:
+            lines.append(f"  - {dep}")
+
+    if langfuse_setup:
+        lines.append(f"\n{langfuse_msg}")
+    else:
+        lines.append("\nNext steps:")
+        lines.append("  1. Review .claude/dev-plugin.yaml and customize as needed")
+        lines.append("  2. Start using Claude Code - hooks are now active!")
+        lines.append("\nOptional: Enable Langfuse observability")
+        lines.append("  1. Edit .claude/dev-plugin.yaml:")
+        lines.append("     observability.langfuse.enabled: true")
+        lines.append("  2. Run 'claude --init' again to auto-setup Langfuse Docker")
+
+    return "\n".join(lines)
+
+
+def main() -> int:
+    """Main setup logic."""
+    try:
+        project_root = get_project_root()
+        log(f"Setting up dev-plugin in: {project_root}")
+
+        # Step 1: Create .claude directory
+        claude_dir = create_claude_directory(project_root)
+
+        # Step 2: Setup config files
+        config_success, created_files = setup_config_files(claude_dir)
+
+        # Step 3: Install dependencies
+        deps_success, installed_deps, failed_deps = setup_dependencies()
+
+        # Check for critical failures
+        if 'pyyaml' in failed_deps:
+            error_output = {
+                "decision": "block",
+                "reason": "PyYAML installation failed",
+                "systemMessage": "⛔ Setup failed: PyYAML is required but installation failed. Install manually: pip install pyyaml"
+            }
+            print(json.dumps(error_output), file=sys.stderr)
+            return 2
+
+        # Step 4: Setup Langfuse (if enabled)
+        langfuse_setup_success = False
+        langfuse_message = ""
+
+        if check_langfuse_enabled(claude_dir):
+            log("Langfuse enabled in config, setting up Docker...")
+
+            # Install langfuse dependency if not already installed
+            if not check_dependency_installed('langfuse'):
+                if install_dependency('langfuse'):
+                    installed_deps.append('langfuse')
+                else:
+                    log("Warning: langfuse installation failed", prefix="⚠")
+
+            # Setup Langfuse Docker
+            langfuse_setup_success, langfuse_message = setup_langfuse()
+
+            if not langfuse_setup_success:
+                # Langfuse setup failed - warn but don't block
+                warning_output = {
+                    "systemMessage": f"⚠ Setup completed with warnings. Langfuse setup failed: {langfuse_message}",
+                    "suppressOutput": False
+                }
+                print(json.dumps(warning_output))
+                # Continue with success message but note the warning
+                langfuse_message = f"⚠ Langfuse setup failed: {langfuse_message}\n\nYou can try again by running 'claude --init' or set up manually."
+
+        # Generate success message
+        success_message = generate_success_message(
+            created_files,
+            installed_deps,
+            langfuse_setup_success,
+            langfuse_message
+        )
+
+        # Output JSON for Claude Code
+        output = {
+            "hookSpecificOutput": {
+                "hookEventName": "Setup",
+                "additionalContext": success_message
+            }
+        }
+        print(json.dumps(output))
+
+        return 0
+
+    except Exception as e:
+        error_output = {
+            "decision": "block",
+            "reason": f"Setup failed: {str(e)}",
+            "systemMessage": f"⛔ Setup failed with error: {str(e)}"
+        }
+        print(json.dumps(error_output), file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
