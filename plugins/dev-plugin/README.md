@@ -63,95 +63,78 @@ An intelligent development automation plugin that ensures code quality, maintain
 
 ### 1. Install the Plugin
 
-**Option A: Automated Setup (Recommended)**
-
+**Project-specific** (recommended):
 ```bash
-# Run the setup script - installs dependencies and plugin
-cd /path/to/dev-plugin
-./setup.sh
-```
-
-The script will:
-- ✓ Check Python and pip
-- ✓ Install dependencies (pyyaml + optional langfuse)
-- ✓ Offer to install plugin globally or per-project
-
-**Option B: Manual Installation**
-
-```bash
-# Install dependencies first
-pip install pyyaml  # Required
-pip install langfuse  # Optional, for observability
-
-# Then install plugin:
-# Project-specific:
 mkdir -p .claude-plugin
 cp -r /path/to/dev-plugin .claude-plugin/
+```
 
-# OR Global (all projects):
+**Global** (all projects):
+```bash
 mkdir -p ~/.claude/plugins
 cp -r /path/to/dev-plugin ~/.claude/plugins/
+```
 
-# OR Test first:
+**Test first** (temporary):
+```bash
 claude --plugin-dir /path/to/dev-plugin
 ```
 
-### 2. Install Dependencies (Automatic or Manual)
+### 2. Initialize with Setup Hook
 
-**Option A: Automatic (Recommended)**
-
-Dependencies are auto-installed on first use:
+The dev-plugin includes a **Setup hook** that automates the entire initialization process:
 
 ```bash
-# Just start Claude Code - dependencies install automatically
-claude
+# One command to set up everything
+claude --init
 ```
 
-**Option B: Manual Installation**
+This will automatically:
+- ✓ Create `.claude/dev-plugin.yaml` with sensible defaults
+- ✓ Create `.claude/.env` template for Langfuse API keys
+- ✓ Install required dependencies (pyyaml)
+- ✓ Install optional dependencies if enabled (langfuse)
+- ✓ Start Langfuse Docker stack if enabled in config
 
-```bash
-# Install required dependencies
-pip install -r /path/to/dev-plugin/requirements.txt
+**What happens:**
+1. Config files are created from templates (if they don't exist)
+2. PyYAML is installed (required for config loading)
+3. If you've enabled Langfuse in the config, Docker services auto-start
+4. You get clear next steps for finishing setup
 
-# Or install individually
-pip install pyyaml  # Required for configuration
-pip install langfuse  # Optional, only if using observability with Langfuse
-```
+**Enable Langfuse (optional):**
 
-**Disable Auto-Install**
+Before running `claude --init`, edit `.claude/dev-plugin.yaml` to enable Langfuse:
 
-If you prefer manual control, disable auto-installation:
-
-```bash
-cat > .claude/dev-plugin.yaml << 'EOF'
-auto_install_dependencies: false
-EOF
-```
-
-### 3. Optional: Configure Features
-
-```bash
-# Enable observability and other features
-cat > .claude/dev-plugin.yaml << 'EOF'
+```yaml
 observability:
-  enabled: true
   langfuse:
-    enabled: false  # Set to true if using Langfuse
-EOF
+    enabled: true  # Change from false to true
 ```
 
-For Langfuse integration, also create `.claude/.env` with your API keys:
+Then run `claude --init` and it will:
+- Download official Langfuse docker-compose.yml to `~/.langfuse/`
+- Generate all Docker secrets automatically
+- Start 6 Docker services (web, worker, postgres, clickhouse, redis, minio)
+- Wait for health check (up to 5 minutes)
+- Provide instructions for getting API keys
+
+**Visit http://localhost:3000** to create an admin account and generate API keys.
+
+### 3. Validate Environment
+
+Check that everything is configured correctly:
 
 ```bash
-cat > .claude/.env << 'EOF'
-LANGFUSE_PUBLIC_KEY=pk-lf-your-key
-LANGFUSE_SECRET_KEY=sk-lf-your-secret
-LANGFUSE_HOST=http://localhost:3000
-EOF
-
-# Secure the .env file
-chmod 600 .claude/.env
+# Run maintenance check
+claude --maintenance
 ```
+
+This validates:
+- ✓ Config files exist and are valid YAML
+- ✓ Required dependencies are installed
+- ✓ Optional dependencies match config
+- ✓ Docker containers running if Langfuse enabled
 
 ### 4. Use Claude Code
 
@@ -934,6 +917,93 @@ Create `.claude/dev-plugin.local.md`:
 ---
 enabled: false
 ---
+```
+
+### Setup Hook Issues
+
+**Problem**: `claude --init` fails with "PyYAML installation failed"
+
+**Solutions**:
+1. Install PyYAML manually:
+   ```bash
+   pip install pyyaml
+   ```
+
+2. Check pip is working:
+   ```bash
+   python3 -m pip --version
+   ```
+
+3. Try with virtual environment:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install pyyaml
+   ```
+
+**Problem**: Langfuse Docker setup fails
+
+**Solutions**:
+1. Check Docker is installed and running:
+   ```bash
+   docker --version
+   docker-compose --version
+   docker ps
+   ```
+
+2. Check Docker has enough resources:
+   - Memory: 4GB minimum
+   - Disk: 2GB free space
+
+3. View Docker logs:
+   ```bash
+   cd ~/.langfuse
+   docker-compose logs
+   ```
+
+4. Restart Docker and try again:
+   ```bash
+   docker-compose down
+   docker-compose up -d
+   ```
+
+**Problem**: Health check timeout
+
+**Solutions**:
+1. Services may still be starting. Wait a few more minutes and check manually:
+   ```bash
+   curl http://localhost:3000/api/public/health
+   ```
+
+2. Check all containers are running:
+   ```bash
+   cd ~/.langfuse
+   docker-compose ps
+   ```
+
+3. View service logs for errors:
+   ```bash
+   docker-compose logs langfuse-web
+   docker-compose logs postgres
+   ```
+
+**Problem**: `claude --maintenance` reports missing files
+
+**Solution**: Run `claude --init` to create missing files:
+```bash
+claude --init
+```
+
+**Problem**: Config file exists but `--init` doesn't update it
+
+**Expected behavior**: Setup is idempotent - it won't overwrite existing config files. To regenerate:
+```bash
+# Backup current config
+cp .claude/dev-plugin.yaml .claude/dev-plugin.yaml.backup
+
+# Remove and regenerate
+rm .claude/dev-plugin.yaml
+claude --init
 ```
 
 ## Development

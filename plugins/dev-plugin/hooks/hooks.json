@@ -160,6 +160,28 @@
           }
         ]
       }
+    ],
+    "Setup": [
+      {
+        "matcher": "init",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/setup-init.py",
+            "timeout": 300
+          }
+        ]
+      },
+      {
+        "matcher": "maintenance",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --quiet ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/setup-maintenance.py",
+            "timeout": 180
+          }
+        ]
+      }
     ]
   }
 }
