@@ -185,7 +185,10 @@ open http://localhost:3000
 - **Global vs project**: Global config applies to all projects, project config overrides
 - **Setup modes**: Choose global (one-time), project (per-project), or both (defaults + overrides)
 - **CLAUDE.md updates**: Conditional - only if valuable learnings exist
-- **Langfuse auto-start**: Requires `compose_path` set in config
+- **Langfuse setup locations**:
+  - Docker compose file: `~/.langfuse/docker-compose.yml` (downloaded from GitHub main branch)
+  - Environment file: `~/.langfuse/.env` (auto-generated secrets)
+  - Auto-start requires `compose_path` set in config
 - **Quality checks**: Blocking - session won't end if type errors exist
 - **Git checkpoint**: Only commits if files were modified
 - **Async hooks & stdin**: Hooks with `async: true` do NOT receive stdin input. Must read session data from filesystem:
