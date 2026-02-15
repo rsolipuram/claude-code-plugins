@@ -1,6 +1,6 @@
 {
   "name": "dev-plugin",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Intelligent development automation: code quality, auto-formatting, git checkpointing, safety validations, notifications, and session observability with Langfuse integration",
   "author": {
     "name": "Developer"
