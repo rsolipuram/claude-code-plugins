@@ -123,10 +123,8 @@ pip install langfuse  # Optional, only if using observability with Langfuse
 If you prefer manual control, disable auto-installation:
 
 ```bash
-cat > .claude/dev-plugin.local.md << 'EOF'
----
+cat > .claude/dev-plugin.yaml << 'EOF'
 auto_install_dependencies: false
----
 EOF
 ```
 
@@ -134,14 +132,25 @@ EOF
 
 ```bash
 # Enable observability and other features
-cat > .claude/dev-plugin.local.md << 'EOF'
----
+cat > .claude/dev-plugin.yaml << 'EOF'
 observability:
   enabled: true
   langfuse:
     enabled: false  # Set to true if using Langfuse
----
 EOF
+```
+
+For Langfuse integration, also create `.claude/.env` with your API keys:
+
+```bash
+cat > .claude/.env << 'EOF'
+LANGFUSE_PUBLIC_KEY=pk-lf-your-key
+LANGFUSE_SECRET_KEY=sk-lf-your-secret
+LANGFUSE_HOST=http://localhost:3000
+EOF
+
+# Secure the .env file
+chmod 600 .claude/.env
 ```
 
 ### 4. Use Claude Code
@@ -325,14 +334,70 @@ cc --plugin-dir /path/to/plugins/dev-plugin
 
 ## Configuration
 
-Create `.claude/dev-plugin.local.md` to customize behavior:
+### Configuration Format
+
+**New Format (Recommended)**: YAML + .env
+
+Starting with v0.5.0, dev-plugin uses standard YAML configuration files with secrets stored separately in `.env` files:
+
+```yaml
+# .claude/dev-plugin.yaml
+enabled: true
+
+observability:
+  enabled: true
+  langfuse:
+    enabled: true
+    host: ${LANGFUSE_HOST}
+    public_key: ${LANGFUSE_PUBLIC_KEY}
+    secret_key: ${LANGFUSE_SECRET_KEY}
+```
+
+```bash
+# .claude/.env (git-ignored, never committed)
+LANGFUSE_PUBLIC_KEY=pk-lf-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+LANGFUSE_SECRET_KEY=sk-lf-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+LANGFUSE_HOST=http://localhost:3000
+```
+
+**Legacy Format**: `.local.md` (Still Supported)
+
+The old markdown format with YAML frontmatter continues to work:
+
+```markdown
+---
+enabled: true
+---
+
+# Your notes here
+```
+
+**Migration**: See [MIGRATION.md](MIGRATION.md) for upgrading to the new format. An automated migration script is available.
+
+---
+
+### Project vs Global Configuration
+
+**Project-level** (`.claude/` in your project):
+- Configuration: `.claude/dev-plugin.yaml`
+- Secrets: `.claude/.env`
+- Applies only to this project
+- Overrides global settings
+
+**Global** (`~/.claude/plugins/dev-plugin/`):
+- Configuration: `dev-plugin.yaml`
+- Secrets: `.env`
+- Applies to all projects as defaults
+- Used as fallback
+
+**Priority**: Project settings deep-merge with and override global settings.
+
+---
 
 ### Basic Configuration
 
 ```yaml
----
 enabled: true
----
 ```
 
 ### TypeScript Configuration
@@ -421,17 +486,30 @@ notifications:
 
 ### Observability Configuration
 
+**Configuration** (`.claude/dev-plugin.yaml`):
 ```yaml
----
 observability:
-  enabled: true          # Enable session tracking
+  enabled: true
+  debug: true  # Enable debug logging
   langfuse:
-    enabled: false       # Set to true to send to Langfuse
-    host: http://localhost:3000
-    public_key: ""       # Your Langfuse public key
-    secret_key: ""       # Your Langfuse secret key
----
+    enabled: true
+    auto_start: true  # Auto-start Langfuse docker if installed
+    host: ${LANGFUSE_HOST}
+    public_key: ${LANGFUSE_PUBLIC_KEY}
+    secret_key: ${LANGFUSE_SECRET_KEY}
+    userId: ${USER}  # Track by username
+    version: "1.0.0"
+    tags: ["dev", "local"]
 ```
+
+**Secrets** (`.claude/.env`):
+```bash
+LANGFUSE_PUBLIC_KEY=pk-lf-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+LANGFUSE_SECRET_KEY=sk-lf-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+LANGFUSE_HOST=http://localhost:3000
+```
+
+**⚠️ Security**: Never commit `.env` files to git! Ensure `.env` is in your `.gitignore`.
 
 **Local-Only Tracking** (no Langfuse):
 - Set `observability.enabled: true` and `langfuse.enabled: false`

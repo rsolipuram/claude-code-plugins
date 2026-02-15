@@ -8,6 +8,11 @@ __pycache__/
 dist/
 build/
 
+# Secrets (NEVER commit)
+.env
+.env.local
+**/.env
+
 # Claude Code local data (observability, logs, settings, state)
 .claude/
 

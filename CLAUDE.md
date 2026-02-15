@@ -19,7 +19,7 @@ claude-code-plugins/
 
 ## Main Plugin: dev-plugin
 
-Multi-feature development automation plugin (v0.4.0) providing:
+Multi-feature development automation plugin (v0.5.0) providing:
 
 - **Code Quality**: Auto-detects TypeScript/Python/Go/Rust, runs type checks at session end
 - **Auto-Formatting**: Formats files after edits (prettier for TS/JS)
@@ -60,10 +60,11 @@ pip install langfuse        # Optional, for observability
 
 ## Configuration
 
-Create `.claude/dev-plugin.local.md` in target projects:
+**New Format** (v0.5.0+): YAML + .env for better security
+
+Create `.claude/dev-plugin.yaml`:
 
 ```yaml
----
 # Code quality
 typescript:
   command: npx tsc --noEmit
@@ -76,21 +77,33 @@ git_checkpoint:
 notifications:
   enabled: true
   mac_notification: true
-  tts: true
+  tts: false
 
 # Observability
 observability:
   enabled: true
   langfuse:
-    enabled: false
+    enabled: true
+    host: ${LANGFUSE_HOST}
+    public_key: ${LANGFUSE_PUBLIC_KEY}
+    secret_key: ${LANGFUSE_SECRET_KEY}
 
 # CLAUDE.md management
 claude_md_management:
   auto_init: true
   auto_update: true
   update_threshold: 3
----
 ```
+
+**Secrets** in `.claude/.env` (git-ignored):
+
+```bash
+LANGFUSE_PUBLIC_KEY=pk-lf-xxxxx
+LANGFUSE_SECRET_KEY=sk-lf-xxxxx
+LANGFUSE_HOST=http://localhost:3000
+```
+
+**Migration**: Run `python plugins/dev-plugin/migrate-config.py` to migrate from `.local.md` format.
 
 ## Langfuse Setup (Optional)
 
@@ -102,7 +115,7 @@ docker compose -f docker-compose.langfuse.yml up -d
 
 # Access at http://localhost:3000
 # Get API keys from Settings → API Keys
-# Configure in .claude/dev-plugin.local.md
+# Add to .claude/.env file
 ```
 
 ## Development Workflow
@@ -115,6 +128,8 @@ docker compose -f docker-compose.langfuse.yml up -d
 
 ## Gotchas
 
+- **Config Migration** (v0.5.0): Use YAML + .env format for security. Legacy `.local.md` still works but deprecated.
+- **Secrets**: Never commit `.env` files! API keys should be in `.env`, not in YAML files.
 - Git auto-commits use prefix "Auto-checkpoint:" (see commit history)
 - Observability data stored in `.claude/observability/` (not committed)
 - CLAUDE.md manager skill requires session activity (threshold: 3+ tool calls)

@@ -6,7 +6,19 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Local settings (should be per-project)
-.claude-dev-plugin.local.md
+# Secrets (NEVER commit)
+.env
+.env.local
+**/.env
 
-.claude
+# Legacy local settings
+.claude-dev-plugin.local.md
+**/*.local.md
+
+# Observability data (session-specific)
+.claude/observability/
+.claude/async-logs/
+
+# Backup files
+*.migrated
+*.bak

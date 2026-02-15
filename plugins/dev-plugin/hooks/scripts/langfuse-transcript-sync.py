@@ -17,49 +17,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+# Import shared config loader
+from config import load_config
+
 # Check if Langfuse is available
 try:
     from langfuse import Langfuse
 except ImportError:
     print("Error: langfuse package not installed. Run: pip install langfuse", file=sys.stderr)
     sys.exit(0)
-
-
-# ========================================
-# CONFIGURATION
-# ========================================
-
-def load_config(project_dir: Path) -> Dict:
-    """Load configuration from .claude/dev-plugin.local.md."""
-    config_paths = [
-        project_dir / '.claude' / 'dev-plugin.local.md',
-        Path.home() / '.claude' / 'plugins' / 'dev-plugin' / 'settings.local.md'
-    ]
-
-    for config_path in config_paths:
-        if config_path.exists():
-            try:
-                content = config_path.read_text()
-                if content.startswith('---'):
-                    import yaml
-                    parts = content.split('---', 2)
-                    if len(parts) >= 2:
-                        return yaml.safe_load(parts[1]) or {}
-            except Exception:
-                pass
-
-    return {
-        'observability': {
-            'enabled': False,
-            'debug': False,
-            'langfuse': {
-                'enabled': False,
-                'host': 'https://cloud.langfuse.com',
-                'public_key': None,
-                'secret_key': None
-            }
-        }
-    }
 
 
 # ========================================

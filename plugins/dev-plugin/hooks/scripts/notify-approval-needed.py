@@ -22,6 +22,9 @@ import sys
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
+# Import shared config loader
+from config import load_config
+
 # Import audio notification system
 try:
     from audio_notify import AudioNotifier
@@ -151,48 +154,6 @@ class ApprovalNotifier:
                 results.append("⚠ Audio system unavailable")
 
         return True, ' | '.join(results) if results else "Approval notification sent"
-
-
-def load_config(project_dir: Path) -> Dict:
-    """Load configuration from .claude/dev-plugin.local.md."""
-    config_paths = [
-        project_dir / '.claude' / 'dev-plugin.local.md',
-        Path.home() / '.claude' / 'plugins' / 'dev-plugin' / 'settings.local.md'
-    ]
-
-    for config_path in config_paths:
-        if config_path.exists():
-            try:
-                content = config_path.read_text()
-                if content.startswith('---'):
-                    import yaml
-                    parts = content.split('---', 2)
-                    if len(parts) >= 2:
-                        return yaml.safe_load(parts[1]) or {}
-            except Exception:
-                pass
-
-    return {
-        'notifications': {
-            'enabled': True,
-            'audio': {
-                'mode': 'sound_only',
-                'sound_library': os.environ.get('CLAUDE_PLUGIN_ROOT', '') + '/hooks/audio' if os.environ.get('CLAUDE_PLUGIN_ROOT') else '~/.claude/audio'
-            },
-            'approval': {
-                'enabled': True,
-                'sound': True,
-                'tts': False,
-                'voice': 'Trinoids',
-                'rate': 140
-            },
-            'tts': {
-                'enabled': False,
-                'timeout': 30,
-                'rate_adjustment': 0
-            }
-        }
-    }
 
 
 def main():

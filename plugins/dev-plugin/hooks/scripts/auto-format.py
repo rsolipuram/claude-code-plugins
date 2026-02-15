@@ -24,6 +24,9 @@ import sys
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
+# Import shared config loader
+from config import load_config
+
 
 class AutoFormatter:
     """Intelligent auto-formatter that detects project type and formats accordingly."""
@@ -105,34 +108,6 @@ class AutoFormatter:
             return self.format_with_prettier(file_path)
 
         return True, ""
-
-
-def load_config(project_dir: Path) -> Dict:
-    """Load configuration from .claude/dev-plugin.local.md."""
-    config_paths = [
-        project_dir / '.claude' / 'dev-plugin.local.md',
-        Path.home() / '.claude' / 'plugins' / 'dev-plugin' / 'settings.local.md'
-    ]
-
-    for config_path in config_paths:
-        if config_path.exists():
-            try:
-                # Read YAML frontmatter
-                content = config_path.read_text()
-                if content.startswith('---'):
-                    import yaml
-                    parts = content.split('---', 2)
-                    if len(parts) >= 2:
-                        return yaml.safe_load(parts[1]) or {}
-            except Exception:
-                pass
-
-    # Return defaults
-    return {
-        'autoformat': {
-            'enabled': True
-        }
-    }
 
 
 def main():

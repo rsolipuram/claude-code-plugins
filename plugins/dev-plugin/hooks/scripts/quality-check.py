@@ -23,6 +23,9 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+# Import shared config loader
+from config import load_config
+
 
 class ProjectDetector:
     """Detects project type and available tools."""
@@ -250,46 +253,6 @@ class QualityChecker:
             results.append(output)
 
         return all_passed, results
-
-
-def load_config(project_dir: Path) -> Dict:
-    """Load configuration from .claude/dev-plugin.local.md."""
-    config_file = project_dir / ".claude" / "dev-plugin.local.md"
-
-    if not config_file.exists():
-        return {"enabled": True}
-
-    try:
-        content = config_file.read_text()
-
-        # Parse YAML frontmatter
-        if content.startswith("---"):
-            parts = content.split("---", 2)
-            if len(parts) >= 3:
-                import yaml
-                try:
-                    config = yaml.safe_load(parts[1])
-                    return config if config else {"enabled": True}
-                except ImportError:
-                    # Fallback to simple parsing if PyYAML not available
-                    config = {}
-                    for line in parts[1].strip().split("\n"):
-                        if ":" in line:
-                            key, value = line.split(":", 1)
-                            key = key.strip()
-                            value = value.strip()
-
-                            # Handle boolean values
-                            if value.lower() in ("true", "false"):
-                                value = value.lower() == "true"
-
-                            config[key] = value
-
-                    return config if config else {"enabled": True}
-    except Exception:
-        pass
-
-    return {"enabled": True}
 
 
 def main():

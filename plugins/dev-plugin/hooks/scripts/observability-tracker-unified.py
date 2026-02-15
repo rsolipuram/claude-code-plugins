@@ -26,6 +26,9 @@ from pathlib import Path
 from typing import Dict, Optional
 import hashlib
 
+# Import shared config loader
+from config import load_config
+
 
 class ObservabilityTracker:
     """Real-time observability tracker with Langfuse management."""
@@ -577,39 +580,6 @@ class ObservabilityTracker:
 
 # ========================================
 # CONFIGURATION
-# ========================================
-
-def load_config(project_dir: Path) -> Dict:
-    """Load configuration from .claude/dev-plugin.local.md."""
-    config_paths = [
-        project_dir / '.claude' / 'dev-plugin.local.md',
-        Path.home() / '.claude' / 'plugins' / 'dev-plugin' / 'settings.local.md'
-    ]
-
-    for config_path in config_paths:
-        if config_path.exists():
-            try:
-                content = config_path.read_text()
-                if content.startswith('---'):
-                    import yaml
-                    parts = content.split('---', 2)
-                    if len(parts) >= 2:
-                        return yaml.safe_load(parts[1]) or {}
-            except Exception:
-                pass
-
-    return {
-        'observability': {
-            'enabled': False,
-            'langfuse': {
-                'enabled': False,
-                'auto_setup': False,
-                'auto_start': False
-            }
-        }
-    }
-
-
 # ========================================
 # MAIN ENTRY POINT
 # ========================================
