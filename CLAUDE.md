@@ -189,6 +189,10 @@ open http://localhost:3000
   - Docker compose file: `~/.langfuse/docker-compose.yml` (downloaded from GitHub main branch)
   - Environment file: `~/.langfuse/.env` (auto-generated secrets)
   - Auto-start requires `compose_path` set in config
+- **Langfuse setup troubleshooting**:
+  - SSL errors during setup fixed by using curl instead of urllib (setup-init.py)
+  - Port 5432 conflicts: Check for SSH tunnels (`lsof -i :5432`) before starting
+  - Clean reinstall: Remove `~/.langfuse/` directory and all Docker volumes
 - **Quality checks**: Blocking - session won't end if type errors exist
 - **Git checkpoint**: Only commits if files were modified
 - **Async hooks & stdin**: Hooks with `async: true` do NOT receive stdin input. Must read session data from filesystem:
