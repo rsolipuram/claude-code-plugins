@@ -5,6 +5,9 @@
 """
 Async CLAUDE.md updater - invokes claude-md-manager skill in background.
 Logs to .claude/async-logs/ for troubleshooting.
+
+NOTE: Async hooks don't receive stdin input, so this script finds the
+transcript file from the filesystem instead.
 """
 
 import json
@@ -15,15 +18,140 @@ from datetime import datetime
 from pathlib import Path
 
 
+def find_latest_transcript() -> tuple[str, Path] | None:
+    """Find the most recently modified transcript file.
+
+    Claude Code stores transcripts as *.jsonl files in ~/.claude/projects/.
+    Returns (session_id, transcript_path) or None.
+    """
+    projects_dir = Path.home() / ".claude" / "projects"
+
+    if not projects_dir.exists():
+        return None
+
+    latest_file = None
+    latest_mtime = 0
+
+    for project_dir in projects_dir.iterdir():
+        if not project_dir.is_dir():
+            continue
+
+        # Look for all .jsonl files (main transcripts, not agent-*.jsonl)
+        for transcript_file in project_dir.glob("*.jsonl"):
+            # Skip subagent transcripts
+            if transcript_file.name.startswith("agent-"):
+                continue
+
+            mtime = transcript_file.stat().st_mtime
+            if mtime > latest_mtime:
+                latest_mtime = mtime
+                latest_file = transcript_file
+
+    if latest_file:
+        # Extract session ID from the first line
+        try:
+            first_line = latest_file.read_text().split("\n")[0]
+            first_msg = json.loads(first_line)
+            session_id = first_msg.get("sessionId", latest_file.stem)
+            return (session_id, latest_file)
+        except (json.JSONDecodeError, IOError, IndexError):
+            return None
+
+    return None
+
+
+def parse_transcript(transcript_path: Path) -> dict:
+    """Parse transcript file and extract session data.
+
+    Returns dict with:
+    - messages: list of messages
+    - tool_calls: list of tool calls
+    - user_messages: count of user messages
+    - assistant_messages: count of assistant messages
+    """
+    messages = []
+    tool_calls = []
+    user_count = 0
+    assistant_count = 0
+
+    try:
+        content = transcript_path.read_text()
+        for line in content.strip().split("\n"):
+            if not line:
+                continue
+
+            try:
+                msg = json.loads(line)
+                messages.append(msg)
+
+                # Count message types
+                role = msg.get("message", {}).get("role")
+                if role == "user":
+                    user_count += 1
+                elif role == "assistant":
+                    assistant_count += 1
+
+                # Extract tool calls
+                msg_content = msg.get("message", {}).get("content", [])
+                if isinstance(msg_content, list):
+                    for item in msg_content:
+                        if isinstance(item, dict) and item.get("type") == "tool_use":
+                            tool_calls.append({
+                                "name": item.get("name"),
+                                "id": item.get("id"),
+                            })
+            except json.JSONDecodeError:
+                continue
+    except IOError:
+        pass
+
+    return {
+        "messages": messages,
+        "tool_calls": tool_calls,
+        "user_messages": user_count,
+        "assistant_messages": assistant_count,
+    }
+
+
+def build_transcript_summary(session_data: dict) -> str:
+    """Build a summary of the session for the claude-md-manager skill."""
+    messages = session_data["messages"]
+    tool_calls = session_data["tool_calls"]
+
+    # Build a simplified transcript with key messages
+    summary_lines = []
+
+    for msg in messages:
+        role = msg.get("message", {}).get("role")
+        content = msg.get("message", {}).get("content", [])
+
+        if role == "user":
+            # Extract user text
+            text_parts = []
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        text_parts.append(item.get("text", ""))
+            user_text = "\n".join(text_parts)
+            if user_text.strip():
+                summary_lines.append(f"USER: {user_text[:500]}")  # Limit length
+
+        elif role == "assistant":
+            # Extract assistant text (skip tool results)
+            text_parts = []
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        text_parts.append(item.get("text", ""))
+            assistant_text = "\n".join(text_parts)
+            if assistant_text.strip():
+                summary_lines.append(f"ASSISTANT: {assistant_text[:500]}")  # Limit length
+
+    return "\n\n".join(summary_lines)
+
+
 def main():
     """Invoke claude-md-manager skill to handle CLAUDE.md."""
-
-    # Read hook input from stdin
-    try:
-        stdin_content = sys.stdin.read().strip()
-        hook_input = json.loads(stdin_content) if stdin_content else {}
-    except (json.JSONDecodeError, ValueError):
-        hook_input = {}
 
     # Get project directory
     project_dir = Path(os.environ.get('CLAUDE_PROJECT_DIR', os.getcwd()))
@@ -35,21 +163,32 @@ def main():
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
     log_file = log_dir / f'claude-md-{timestamp}.log'
 
-    # Extract context from hook input
-    hook_event = hook_input.get('hook_event_name', 'unknown')
-    transcript = hook_input.get('transcript', '')
-    tool_calls = hook_input.get('tool_calls', [])
+    try:
+        # Find the latest transcript
+        result = find_latest_transcript()
+        if not result:
+            with open(log_file, 'w') as f:
+                f.write(f"[{datetime.now()}] No transcript file found\n")
+            sys.exit(0)
 
-    # Use claude-md-manager skill with full session context
-    prompt = f"""Use the /claude-md-manager skill to handle CLAUDE.md for this Stop hook event.
+        session_id, transcript_path = result
 
-**Hook Context:**
-- Event: {hook_event}
-- Tool calls: {len(tool_calls)}
-- Transcript length: {len(transcript)} chars
+        # Parse transcript
+        session_data = parse_transcript(transcript_path)
+        transcript_summary = build_transcript_summary(session_data)
 
-**Session Transcript:**
-{transcript}
+        # Build prompt for claude-md-manager skill
+        prompt = f"""Use the /claude-md-manager skill to handle CLAUDE.md for this Stop hook event.
+
+**Session Context:**
+- Session ID: {session_id}
+- User messages: {session_data['user_messages']}
+- Assistant messages: {session_data['assistant_messages']}
+- Tool calls: {len(session_data['tool_calls'])}
+- Tools used: {', '.join(set(tc['name'] for tc in session_data['tool_calls'][:10]))}
+
+**Session Summary:**
+{transcript_summary[:2000]}
 
 **Instructions:**
 The claude-md-manager skill will automatically:
@@ -61,14 +200,15 @@ The claude-md-manager skill will automatically:
 Invoke the skill now.
 """
 
-    try:
         # Log start with context info
         with open(log_file, 'w') as f:
             f.write(f"[{datetime.now()}] Starting async CLAUDE.md analysis\n")
             f.write(f"Project: {project_dir}\n")
-            f.write(f"Hook event: {hook_event}\n")
-            f.write(f"Transcript length: {len(transcript)} chars\n")
-            f.write(f"Tool calls: {len(tool_calls)}\n")
+            f.write(f"Session: {session_id}\n")
+            f.write(f"Transcript: {transcript_path}\n")
+            f.write(f"User messages: {session_data['user_messages']}\n")
+            f.write(f"Assistant messages: {session_data['assistant_messages']}\n")
+            f.write(f"Tool calls: {len(session_data['tool_calls'])}\n")
             f.write(f"Using: /claude-md-manager skill\n")
             f.write("---\n")
             f.flush()
