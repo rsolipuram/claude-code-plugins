@@ -8,14 +8,8 @@ __pycache__/
 dist/
 build/
 
-# Observability data (sessions tracked locally)
-.claude/observability/sessions/
-.claude/observability/debug/
-.claude/observability/test-sessions/
-.claude/observability/current-session.json
-
-# Async logs
-.claude/async-logs/
+# Claude Code local data (observability, logs, settings, state)
+.claude/
 
 # Test scripts (root level only)
 /test-*.py
@@ -36,9 +30,9 @@ build/
 # Logs
 *.log
 
-# Local plugin settings (contains API keys)
-.claude/*.local.md
-
 # Temporary files
 *.tmp
 *.bak
+
+# Langfuse local installation
+langfuse/

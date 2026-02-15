@@ -8,3 +8,5 @@ Thumbs.db
 
 # Local settings (should be per-project)
 .claude-dev-plugin.local.md
+
+.claude
