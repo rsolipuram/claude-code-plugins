@@ -155,6 +155,7 @@ open http://localhost:3000
 - **Langfuse auto-start**: Requires `compose_path` set in config
 - **Quality checks**: Blocking - session won't end if type errors exist
 - **Git checkpoint**: Only commits if files were modified
+- **Async hooks & stdin**: Hooks with `async: true` do NOT receive stdin input. Must read session data from filesystem (`~/.claude/projects/.../transcript.jsonl`) instead of stdin
 
 ## Key Files
 
@@ -166,5 +167,5 @@ open http://localhost:3000
 
 ---
 
-*Last updated: 2026-02-14*
+*Last updated: 2026-02-15*
 *Managed by claude-md-manager skill. Quality target: 80+/100*
